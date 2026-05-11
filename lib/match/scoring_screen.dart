@@ -241,8 +241,8 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
 
       if (isLegal && !isWicket && runsBat.isOdd) {
         setState(() => _innings = Innings.copyWith(updInn,
-          currentStrikerId: updInn.currentNonStrikerId,
-          currentNonStrikerId: updInn.currentStrikerId,
+          currentStrikerId: inn.currentNonStrikerId,
+          currentNonStrikerId: inn.currentStrikerId,
           deliveries: (inn.deliveries ?? []) + (updInn.deliveries ?? []),
         ));
       } else {
