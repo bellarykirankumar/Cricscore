@@ -480,17 +480,23 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
         : currentDeliveries.isEmpty
             ? null
             : currentDeliveries.take(currentDeliveries.length - 1).toList();
+    final lastRemaining = resolvedDeliveries == null || resolvedDeliveries.isEmpty
+        ? null
+        : resolvedDeliveries.last;
 
     return Innings.copyWith(
       updated,
       currentStrikerId: updated.currentStrikerId ??
           _stringField(undone, 'batsmanId') ??
+          lastRemaining?.batsmanId ??
           previous.currentStrikerId,
       currentNonStrikerId: updated.currentNonStrikerId ??
           _stringField(undone, 'nonStrikerId') ??
+          lastRemaining?.nonStrikerId ??
           previous.currentNonStrikerId,
       currentBowlerId: updated.currentBowlerId ??
           _stringField(undone, 'bowlerId') ??
+          lastRemaining?.bowlerId ??
           previous.currentBowlerId,
       deliveries: resolvedDeliveries,
     );
