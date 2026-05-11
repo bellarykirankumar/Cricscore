@@ -21,6 +21,12 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+bool _isApiGatewayIamAuthError(String message) {
+  return message.contains("Authorization header requires 'Credential' parameter") &&
+      message.contains("Authorization header requires 'Signature' parameter") &&
+      message.contains("Authorization header requires 'SignedHeaders' parameter");
+}
+
 class ApiService {
   static ApiService? _instance;
   static ApiService get instance => _instance ??= ApiService._();
@@ -79,12 +85,16 @@ class ApiService {
               !trimmed.startsWith('<')
           ? trimmed
           : null;
-      throw ApiException(
-        fromJson ??
-            fromBody ??
-            'Request failed (HTTP ${res.statusCode})',
-        res.statusCode,
-      );
+      final message = fromJson ??
+          fromBody ??
+          'Request failed (HTTP ${res.statusCode})';
+      if (_isApiGatewayIamAuthError(message)) {
+        throw ApiException(
+          'API route is missing or configured for AWS IAM instead of the app API',
+          res.statusCode,
+        );
+      }
+      throw ApiException(message, res.statusCode);
     }
 
     if (res.body.isEmpty) return null;
@@ -150,11 +160,21 @@ class MatchApi {
     if (rawBallNumber != null) {
       body['rawBallNumber'] = rawBallNumber;
     }
-    return _api._request(
-      'POST',
-      '/matches/$matchId/innings/$inningsNum/undo',
-      body: body,
-    );
+    try {
+      return await _api._request(
+        'POST',
+        '/matches/$matchId/innings/$inningsNum/undo',
+        body: body,
+      );
+    } on ApiException catch (e) {
+      if (e.message.contains('API route is missing')) {
+        throw ApiException(
+          'Undo is not available because the backend undo endpoint is missing or protected with AWS IAM',
+          e.statusCode,
+        );
+      }
+      rethrow;
+    }
   }
 
   /// Backend may use different strings when a game is over.
