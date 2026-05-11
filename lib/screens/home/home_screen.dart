@@ -51,7 +51,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
       final allFix = results[3] as List<Map<String, dynamic>>;
       final liveMatches = (results[0] as List<CricMatch>).where((m) =>
         m.status == 'in_progress' || m.status == 'innings_break').toList();
-      final liveMatchIds = liveMatches.map((m) => m.id).toSet();
       setState(() {
         _live   = liveMatches;
         _recent = (results[1] as List<CricMatch>).where((m) =>
@@ -60,7 +59,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
           t.status != 'completed' && t.status != 'deleted' && t.status != 'archived').toList();
         _todayFixtures = allFix.where((e) {
           final fixture = e['fixture'] as Fixture;
-          if (fixture.matchId != null && liveMatchIds.contains(fixture.matchId)) {
+          final tournament = e['tournament'] is Tournament ? e['tournament'] as Tournament : null;
+          if (_fixtureHasLiveMatch(fixture, tournament, liveMatches)) {
             return false;
           }
           final raw = fixture.scheduledDate;
@@ -210,6 +210,51 @@ bool _isTodayMillis(int millis) {
   final dt = DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
   final now = DateTime.now();
   return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+}
+
+bool _fixtureHasLiveMatch(
+  Fixture fixture,
+  Tournament? tournament,
+  List<CricMatch> liveMatches,
+) {
+  final fixtureMatchId = fixture.matchId;
+  if (fixtureMatchId != null && liveMatches.any((m) => m.id == fixtureMatchId)) {
+    return true;
+  }
+
+  final fixtureTeamIds = {fixture.homeTeamId, fixture.awayTeamId}
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  final fixtureTeamNames = {
+    fixture.homeTeamName.trim().toLowerCase(),
+    fixture.awayTeamName.trim().toLowerCase(),
+  }.where((name) => name.isNotEmpty).toSet();
+
+  return liveMatches.any((match) {
+    if (tournament != null &&
+        match.tournamentId != null &&
+        match.tournamentId != tournament.id) {
+      return false;
+    }
+
+    final liveTeamIds = {
+      match.team1?.id,
+      match.team2?.id,
+    }.whereType<String>().where((id) => id.isNotEmpty).toSet();
+    if (fixtureTeamIds.length == 2 &&
+        liveTeamIds.length == 2 &&
+        liveTeamIds.containsAll(fixtureTeamIds)) {
+      return true;
+    }
+
+    final liveTeamNames = {
+      match.team1?.name.trim().toLowerCase(),
+      match.team2?.name.trim().toLowerCase(),
+    }.whereType<String>().where((name) => name.isNotEmpty).toSet();
+    return fixtureTeamNames.length == 2 &&
+        liveTeamNames.length == 2 &&
+        liveTeamNames.containsAll(fixtureTeamNames);
+  });
 }
 
 // ── Home Tab ──────────────────────────────────────────────────
