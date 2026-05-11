@@ -295,6 +295,43 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     ));
   }
 
+  String? _missingPlayerPicker(Innings inn) {
+    if (inn.currentStrikerId == null) return 'striker';
+    if (inn.currentNonStrikerId == null) return 'non_striker';
+    if (inn.currentBowlerId == null) return 'bowler';
+    return null;
+  }
+
+  String? _stringField(Map<String, dynamic>? data, String key) {
+    final value = data?[key];
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
+  Innings _resolveUndoInnings(Innings previous, Map<String, dynamic> response) {
+    final updated = Innings.fromJson(response['innings'] as Map<String, dynamic>);
+    final undoneRaw = response['undone'];
+    final undone = undoneRaw is Map<String, dynamic> ? undoneRaw : null;
+    final currentDeliveries = previous.deliveries ?? const <Delivery>[];
+    final resolvedDeliveries = updated.deliveries ??
+        (currentDeliveries.isEmpty
+            ? null
+            : currentDeliveries.take(currentDeliveries.length - 1).toList());
+
+    return Innings.copyWith(
+      updated,
+      currentStrikerId: updated.currentStrikerId ??
+          _stringField(undone, 'batsmanId') ??
+          previous.currentStrikerId,
+      currentNonStrikerId: updated.currentNonStrikerId ??
+          _stringField(undone, 'nonStrikerId') ??
+          previous.currentNonStrikerId,
+      currentBowlerId: updated.currentBowlerId ??
+          _stringField(undone, 'bowlerId') ??
+          previous.currentBowlerId,
+      deliveries: resolvedDeliveries,
+    );
+  }
+
   Future<void> _handleInningsEnd(Innings cur) async {
     try {
       final isSecond = cur.inningsNumber == 2;
@@ -393,7 +430,11 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       }
       _rawBallCount = (_rawBallCount - 1).clamp(0, 9999);
       if (r is Map<String, dynamic> && r['innings'] is Map<String, dynamic>) {
-        setState(() => _innings = Innings.fromJson(r['innings'] as Map<String, dynamic>));
+        final resolved = _resolveUndoInnings(inn, r);
+        setState(() {
+          _innings = resolved;
+          _pickerMode = _missingPlayerPicker(resolved);
+        });
       } else {
         await _loadMatch();
       }
