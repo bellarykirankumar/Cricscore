@@ -18,7 +18,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
   List<CricMatch>  _recent     = [];
   List<Tournament> _tours      = [];
   List<Map<String, dynamic>> _todayFixtures = [];
-  List<Map<String, dynamic>> _allFixtures   = [];
   bool             _loading    = true;
 
   @override void initState() {
@@ -65,14 +64,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
             return local.year == now.year && local.month == now.month && local.day == now.day;
           } catch (_) { return false; }
         }).toList();
-        _allFixtures = allFix;
-        print('[_load] allFixtures count: ${allFix.length}');
-        print('[_load] todayFixtures count: ${_todayFixtures.length}');
-        for (final e in _todayFixtures) {
-          final f = e['fixture'] as Fixture;
-          print('[_load]   today fixture: ${f.homeTeamName} vs ${f.awayTeamName}, scheduledDate=${f.scheduledDate}');
-        }
-        print('[_load] now (local): $now');
         _loading = false;
       });
     } catch (_) {
@@ -147,7 +138,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
               tabs: const [
                 Tab(text: 'Home'),
                 Tab(text: 'Tournaments'),
-                Tab(text: 'Teams'),
+                Tab(text: 'Results'),
               ],
             ),
           ),
@@ -155,11 +146,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
         body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
           : TabBarView(controller: _tabs, children: [
-              _HomeTab(live: _live, recent: _recent, tours: _tours,
-                todayFixtures: _todayFixtures, allFixtures: _allFixtures,
+              _HomeTab(live: _live, tours: _tours,
+                todayFixtures: _todayFixtures,
                 onRefresh: _load, onEndMatch: _endMatch, user: user),
               _TournamentsTab(tours: _tours, onRefresh: _load, user: user),
-              _TeamsTab(tours: _tours, onRefresh: _load),
+              _ResultsTab(recent: _recent, onRefresh: _load),
             ]),
       ),
       floatingActionButton: null,
@@ -208,31 +199,39 @@ String _formatTime(String dateStr) {
   } catch (_) { return dateStr; }
 }
 
+bool _isTodayMillis(int millis) {
+  if (millis <= 0) return false;
+  final dt = DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
+  final now = DateTime.now();
+  return dt.year == now.year && dt.month == now.month && dt.day == now.day;
+}
+
 // ── Home Tab ──────────────────────────────────────────────────
 class _HomeTab extends StatelessWidget {
-  final List<CricMatch> live, recent;
+  final List<CricMatch> live;
   final List<Tournament> tours;
   final List<Map<String, dynamic>> todayFixtures;
-  final List<Map<String, dynamic>> allFixtures;
   final Future<void> Function() onRefresh;
   final Future<void> Function(String) onEndMatch;
   final AuthUser? user;
 
   const _HomeTab({
-    required this.live, required this.recent, required this.tours,
-    required this.todayFixtures, required this.allFixtures,
+    required this.live, required this.tours,
+    required this.todayFixtures,
     required this.onRefresh, required this.onEndMatch, required this.user,
   });
 
   @override Widget build(BuildContext context) {
+    final liveToday = live.where((m) => _isTodayMillis(m.createdAt)).toList();
+
     return RefreshIndicator(
       onRefresh: onRefresh,
       color: AppColors.accent,
       child: ListView(children: [
-        // Live matches
-        if (live.isNotEmpty) ...[
-          const SectionHeader(title: 'Live matches'),
-          ...live.map((m) => _LiveMatchCard(match: m, onEndMatch: onEndMatch, user: user)),
+        // Live matches today
+        if (liveToday.isNotEmpty) ...[
+          const SectionHeader(title: 'Live matches today'),
+          ...liveToday.map((m) => _LiveMatchCard(match: m, onEndMatch: onEndMatch, user: user)),
         ],
 
         // Today's fixtures
@@ -286,6 +285,40 @@ class _HomeTab extends StatelessWidget {
           }),
         ],
 
+        // Active tournaments
+        if (tours.isNotEmpty) ...[
+          const SectionHeader(title: 'Active tournaments'),
+          ...tours.map((t) => AppCard(
+            onTap: () => context.push('/tournament/${t.id}').then((_) => onRefresh()),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(t.name, style: const TextStyle(
+                  fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
+                const SizedBox(height: 4),
+                Text('${t.teamCount} teams · ${t.format}',
+                  style: const TextStyle(color: AppColors.text2, fontSize: 13)),
+              ])),
+              StatusBadge(
+                label: t.isActive ? 'Active' : 'Upcoming',
+                color: t.isActive ? AppColors.accent : AppColors.ball,
+              ),
+            ]),
+          )),
+        ],
+
+        if (liveToday.isEmpty && todayFixtures.isEmpty && tours.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(48),
+            child: Column(children: [
+              Text('🏟️', style: TextStyle(fontSize: 48)),
+              SizedBox(height: 16),
+              Text('No matches yet', style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.text)),
+              SizedBox(height: 8),
+              Text('Start a match or create a tournament',
+                style: TextStyle(color: AppColors.text2)),
+            ]),
+          ),
 
         // Quick actions
         if (user?.isScorer == true) ...[
@@ -310,63 +343,6 @@ class _HomeTab extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
-
-        // Active tournaments
-        if (tours.isNotEmpty) ...[
-          const SectionHeader(title: 'Active tournaments'),
-          ...tours.map((t) => AppCard(
-            onTap: () => context.push('/tournament/${t.id}').then((_) => onRefresh()),
-            child: Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(t.name, style: const TextStyle(
-                  fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
-                const SizedBox(height: 4),
-                Text('${t.teamCount} teams · ${t.format}',
-                  style: const TextStyle(color: AppColors.text2, fontSize: 13)),
-              ])),
-              StatusBadge(
-                label: t.isActive ? 'Active' : 'Upcoming',
-                color: t.isActive ? AppColors.accent : AppColors.ball,
-              ),
-            ]),
-          )),
-        ],
-
-        // Recent results
-        if (recent.isNotEmpty) ...[
-          const SectionHeader(title: 'Recent results'),
-          ...recent.map((m) => AppCard(
-            onTap: () => context.push('/scorecard/${m.id}'),
-            child: Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${m.team1?.name ?? '—'} vs ${m.team2?.name ?? '—'}',
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.text)),
-                if (m.result != null) ...[
-                  const SizedBox(height: 4),
-                  Text(m.result!['description'] as String? ?? '',
-                    style: const TextStyle(color: AppColors.accent, fontSize: 13)),
-                ],
-              ])),
-              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                Text(m.format, style: const TextStyle(color: AppColors.ball, fontSize: 13)),
-              ]),
-            ]),
-          )),
-        ],
-
-        if (live.isEmpty && tours.isEmpty && recent.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(48),
-            child: Column(children: [
-              Text('🏟️', style: TextStyle(fontSize: 48)),
-              SizedBox(height: 16),
-              Text('No matches yet', style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.text)),
-              SizedBox(height: 8),
-              Text('Start a match or create a tournament',
-                style: TextStyle(color: AppColors.text2)),
-            ]),
-          ),
         const SizedBox(height: 80),
       ]),
     );
@@ -552,42 +528,50 @@ class _TournamentsTab extends StatelessWidget {
   }
 }
 
-// ── Teams Tab ─────────────────────────────────────────────────
-class _TeamsTab extends StatelessWidget {
-  final List<Tournament> tours;
+// ── Results Tab ────────────────────────────────────────────────
+class _ResultsTab extends StatelessWidget {
+  final List<CricMatch> recent;
   final Future<void> Function() onRefresh;
-  const _TeamsTab({required this.tours, required this.onRefresh});
+  const _ResultsTab({required this.recent, required this.onRefresh});
 
   @override Widget build(BuildContext context) {
-    return ListView(children: [
-      const SectionHeader(title: 'Teams by tournament'),
-      ...tours.map((t) => AppCard(
-        onTap: () => context.push('/tournament/${t.id}').then((_) => onRefresh()),
-        child: Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(t.name, style: const TextStyle(
-              fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
-            const SizedBox(height: 4),
-            Text('${t.teamCount} teams registered',
-              style: const TextStyle(color: AppColors.text2, fontSize: 13)),
-          ])),
-          const Text('Manage →', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w600)),
-        ]),
-      )),
-      if (tours.isEmpty)
-        const Padding(
-          padding: EdgeInsets.all(40),
-          child: Column(children: [
-            Text('👥', style: TextStyle(fontSize: 40)),
-            SizedBox(height: 12),
-            Text('No teams yet', style: TextStyle(
-              color: AppColors.text, fontWeight: FontWeight.w700)),
-            SizedBox(height: 6),
-            Text('Create a tournament first to add teams',
-              style: TextStyle(color: AppColors.text2, fontSize: 13)),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      color: AppColors.accent,
+      child: ListView(children: [
+        const SectionHeader(title: 'Recent results'),
+        ...recent.map((m) => AppCard(
+          onTap: () => context.push('/scorecard/${m.id}'),
+          child: Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${m.team1?.name ?? '—'} vs ${m.team2?.name ?? '—'}',
+                style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.text)),
+              if (m.result != null) ...[
+                const SizedBox(height: 4),
+                Text(m.result!['description'] as String? ?? '',
+                  style: const TextStyle(color: AppColors.accent, fontSize: 13)),
+              ],
+            ])),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(m.format, style: const TextStyle(color: AppColors.ball, fontSize: 13)),
+            ]),
           ]),
-        ),
-      const SizedBox(height: 80),
-    ]);
+        )),
+        if (recent.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(40),
+            child: Column(children: [
+              Text('📋', style: TextStyle(fontSize: 40)),
+              SizedBox(height: 12),
+              Text('No recent results', style: TextStyle(
+                color: AppColors.text, fontWeight: FontWeight.w700)),
+              SizedBox(height: 6),
+              Text('Completed matches will appear here',
+                style: TextStyle(color: AppColors.text2, fontSize: 13)),
+            ]),
+          ),
+        const SizedBox(height: 80),
+      ]),
+    );
   }
 }
