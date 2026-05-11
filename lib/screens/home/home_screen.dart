@@ -49,15 +49,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProvid
       if (!mounted) return;
       final now = DateTime.now();
       final allFix = results[3] as List<Map<String, dynamic>>;
+      final liveMatches = (results[0] as List<CricMatch>).where((m) =>
+        m.status == 'in_progress' || m.status == 'innings_break').toList();
+      final liveMatchIds = liveMatches.map((m) => m.id).toSet();
       setState(() {
-        _live   = (results[0] as List<CricMatch>).where((m) =>
-          m.status == 'in_progress' || m.status == 'innings_break').toList();
+        _live   = liveMatches;
         _recent = (results[1] as List<CricMatch>).where((m) =>
           m.status == 'completed').take(10).toList();
         _tours  = (results[2] as List<Tournament>).where((t) =>
           t.status != 'completed' && t.status != 'deleted' && t.status != 'archived').toList();
         _todayFixtures = allFix.where((e) {
-          final raw = (e['fixture'] as Fixture).scheduledDate;
+          final fixture = e['fixture'] as Fixture;
+          if (fixture.matchId != null && liveMatchIds.contains(fixture.matchId)) {
+            return false;
+          }
+          final raw = fixture.scheduledDate;
           if (raw == null) return false;
           try {
             final local = DateTime.parse(raw).toLocal();
