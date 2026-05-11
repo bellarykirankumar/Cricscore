@@ -312,10 +312,12 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     final undoneRaw = response['undone'];
     final undone = undoneRaw is Map<String, dynamic> ? undoneRaw : null;
     final currentDeliveries = previous.deliveries ?? const <Delivery>[];
-    final resolvedDeliveries = updated.deliveries ??
-        (currentDeliveries.isEmpty
+    final apiDeliveries = updated.deliveries;
+    final resolvedDeliveries = apiDeliveries != null && apiDeliveries.isNotEmpty
+        ? apiDeliveries
+        : currentDeliveries.isEmpty
             ? null
-            : currentDeliveries.take(currentDeliveries.length - 1).toList());
+            : currentDeliveries.take(currentDeliveries.length - 1).toList();
 
     return Innings.copyWith(
       updated,
