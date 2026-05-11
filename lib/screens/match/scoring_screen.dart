@@ -457,6 +457,26 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     ));
   }
 
+  void _swapBatters() {
+    final inn = _innings;
+    if (inn == null) return;
+    if (inn.currentStrikerId == null || inn.currentNonStrikerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select both batters before swapping')),
+      );
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _innings = Innings.copyWith(
+        inn,
+        currentStrikerId: inn.currentNonStrikerId,
+        currentNonStrikerId: inn.currentStrikerId,
+      );
+      _pickerMode = null;
+    });
+  }
+
   String? _missingPlayerPicker(Innings inn) {
     if (inn.currentStrikerId == null) return 'striker';
     if (inn.currentNonStrikerId == null) return 'non_striker';
@@ -486,16 +506,16 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
 
     return Innings.copyWith(
       updated,
-      currentStrikerId: updated.currentStrikerId ??
-          _stringField(undone, 'batsmanId') ??
+      currentStrikerId: _stringField(undone, 'batsmanId') ??
+          updated.currentStrikerId ??
           lastRemaining?.batsmanId ??
           previous.currentStrikerId,
-      currentNonStrikerId: updated.currentNonStrikerId ??
-          _stringField(undone, 'nonStrikerId') ??
+      currentNonStrikerId: _stringField(undone, 'nonStrikerId') ??
+          updated.currentNonStrikerId ??
           lastRemaining?.nonStrikerId ??
           previous.currentNonStrikerId,
-      currentBowlerId: updated.currentBowlerId ??
-          _stringField(undone, 'bowlerId') ??
+      currentBowlerId: _stringField(undone, 'bowlerId') ??
+          updated.currentBowlerId ??
           lastRemaining?.bowlerId ??
           previous.currentBowlerId,
       deliveries: resolvedDeliveries,
@@ -723,6 +743,21 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                     Text('${strikerStats?.runsScored ?? 0}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.text)),
                     Text(' (${strikerStats?.ballsFaced ?? 0}b)', style: const TextStyle(color: AppColors.text2, fontSize: 13)),
                   ]),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _saving ? null : _swapBatters,
+                    icon: const Icon(Icons.swap_vert, size: 16),
+                    label: const Text('Swap batters'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.accent,
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 GestureDetector(
