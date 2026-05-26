@@ -8,6 +8,7 @@ import '../../services/geo_service.dart';
 import '../../models/models.dart';
 import '../../main.dart';
 import '../../widgets/country_picker_sheet.dart';
+import '../support/support_chat_screen.dart';
 import 'fixture_toss_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -300,6 +301,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               subtitle: const Text('Detected from your location',
                 style: TextStyle(color: AppColors.text2, fontSize: 12)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.support_agent_outlined, color: AppColors.accent),
+              title: const Text('Help & Support', style: TextStyle(color: AppColors.text)),
+              subtitle: const Text('Chat with our AI assistant',
+                  style: TextStyle(color: AppColors.text2, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SupportChatScreen()));
+              },
             ),
             ListTile(
               leading: const Icon(Icons.logout_outlined, color: AppColors.text2),
