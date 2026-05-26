@@ -50,6 +50,10 @@ dependencies:
   # Voice input
   speech_to_text: ^7.4.0
 
+  # Crash reporting
+  firebase_core: ^3.6.0
+  firebase_crashlytics: ^4.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

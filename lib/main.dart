@@ -1,7 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'services/auth_service.dart';
 import 'models/models.dart';
@@ -102,6 +106,11 @@ final _router = GoRouter(
 // ── App Entry ─────────────────────────────────────────────────
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Firebase + Crashlytics
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp, DeviceOrientation.portraitDown,
   ]);
@@ -109,7 +118,12 @@ void main() async {
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
   ));
-  runApp(const ProviderScope(child: CricScoreApp()));
+
+  // Catch async errors outside Flutter (e.g. isolate crashes)
+  runZonedGuarded(
+    () => runApp(const ProviderScope(child: CricScoreApp())),
+    (error, stack) => FirebaseCrashlytics.instance.recordError(error, stack, fatal: true),
+  );
 }
 
 class CricScoreApp extends ConsumerWidget {
