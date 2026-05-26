@@ -7,6 +7,7 @@ import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/clip_ws_service.dart';
 import '../../models/models.dart';
+import '../../utils/cricket_utils.dart';
 import 'commentary_screen.dart';
 import 'camera_buffer_screen.dart';
 
@@ -217,13 +218,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     }).toList();
   }
 
-  int? _maxOvers(String format, int total) {
-    if (format == 'Test') return null;
-    if (format == 'T20') return 4;
-    if (format == 'T10') return 2;
-    if (format == 'ODI') return 10;
-    return (total / 5).floor().clamp(1, 999);
-  }
+  int? _maxOvers(String format, int total) => CricketUtils.bowlerQuota(format, total);
 
   void _onPickPlayer(Player player) {
     final inn = _innings;
