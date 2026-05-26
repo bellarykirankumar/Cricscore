@@ -107,6 +107,44 @@ Calls Anthropic Claude API. All endpoints require auth.
 | POST | `/ai/tournament-setup` | AI-guided tournament configuration |
 | POST | `/ai/commentary` | Generate commentary for a delivery |
 
+### Support Chat — `cricscore-support-{env}`
+
+AI-powered in-app support using Claude Haiku. No authentication required.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/support/chat` | Send a user message, receive an AI reply |
+
+**Request body:**
+```json
+{
+  "message": "How do I undo a delivery?",
+  "history": [{ "role": "user", "content": "..." }, { "role": "assistant", "content": "..." }],
+  "userId": "cognito-sub-uuid",
+  "userEmail": "user@example.com",
+  "appVersion": "1.0.4"
+}
+```
+
+**Response:**
+```json
+{
+  "reply": "Tap the ↩ Undo button on the scoring screen to reverse the last delivery.",
+  "isEscalated": false,
+  "ticketId": null
+}
+```
+
+**Escalation flow:** When Claude cannot resolve the issue (bug, account problem, feature request), it appends an `ESCALATE:{...}` signal. The Lambda strips the signal from the reply, sends an email via SES to `bellarykirankumar@gmail.com` with the full conversation, and sets `isEscalated: true` in the response. The Flutter app shows a banner confirming the team has been notified.
+
+**Environment variables:**
+
+| Variable | Value |
+|---|---|
+| `ANTHROPIC_API_KEY` | _(secret)_ |
+| `SUPPORT_EMAIL` | `bellarykirankumar@gmail.com` |
+| `TABLE_NAME` | `CricScore-{env}` |
+
 ---
 
 ## WebSocket API
@@ -172,6 +210,9 @@ ttl: <unix timestamp + 12h>
 | clip | `CLIP_BUCKET` | `cricscore-clips-dev-115635400323` | `cricscore-clips-prod-115635400323` |
 | ws | `TABLE_NAME` | `CricScore-dev` | `CricScore-prod` |
 | ai | `ANTHROPIC_API_KEY` | _(secret — same for both envs)_ | _(same)_ |
+| support | `ANTHROPIC_API_KEY` | _(secret — same for both envs)_ | _(same)_ |
+| support | `SUPPORT_EMAIL` | `bellarykirankumar@gmail.com` | _(same)_ |
+| support | `TABLE_NAME` | `CricScore-dev` | `CricScore-prod` |
 
 ---
 

@@ -39,7 +39,7 @@ Hits `CricScore-prod`. Use carefully — this is real user data.
 
 ---
 
-## Building for App Store
+## Building for App Store (iOS)
 
 ```bash
 # 1. Bump version in pubspec.yaml
@@ -64,6 +64,26 @@ open /Applications/Transporter.app
 
 ---
 
+## Building for Google Play (Android)
+
+```bash
+# 1. Ensure android/key.properties exists (NOT in git — keep backed up separately):
+#    storePassword=cricscore2025
+#    keyPassword=cricscore2025
+#    keyAlias=cricscore
+#    storeFile=cricscore-release.jks
+
+# 2. Build signed AAB
+flutter build appbundle --dart-define=ENV=prod
+
+# 3. Upload to Google Play Console → Production (or Internal Testing)
+#    File: build/app/outputs/bundle/release/app-release.aab
+```
+
+> ⚠️ `android/key.properties` is excluded from git (contains plaintext passwords). Back it up in a password manager or encrypted drive. Without it, future Android releases cannot be signed.
+
+---
+
 ## AWS resource reference
 
 ### Dev environment
@@ -76,7 +96,7 @@ open /Applications/Transporter.app
 | Cognito client | `126l3iutfb2a6qpf2jhapligsg` |
 | REST API | `r78anm7dvb` → stage `dev` |
 | WebSocket API | `2fziydn0oj` → stage `dev` |
-| Lambda functions | `cricscore-*-dev` (×7) |
+| Lambda functions | `cricscore-*-dev` (×8) |
 
 ### Prod environment
 
@@ -88,7 +108,9 @@ open /Applications/Transporter.app
 | Cognito client | `2kr2g7njtctpjr7tn7mk1rq3l5` |
 | REST API | `j6czhcdaz8` → stage `prod` |
 | WebSocket API | `gx2b5g04zb` → stage `prod` |
-| Lambda functions | `cricscore-*-prod` (×7) |
+| Lambda functions | `cricscore-*-prod` (×8) |
+| CloudWatch alarms | 19 alarms → SNS `cricscore-alerts` |
+| Firebase | `cricscore-ffd4a` (Crashlytics) |
 
 ---
 
@@ -145,11 +167,15 @@ aws cloudfront create-invalidation \
 ```
 main branch = source of truth
 
+Every push to main automatically runs CI:
+  → flutter analyze (lint + type check)
+  → flutter test (64 unit + widget tests)
+
 Feature/fix:
   1. Make changes (flutter run to test on dev)
   2. git add <specific files>
   3. git commit -m "description"
-  4. git push origin main
+  4. git push origin main   ← CI runs automatically
 
 App Store release:
   1. Bump version in pubspec.yaml
@@ -164,10 +190,12 @@ App Store release:
 | In repo | Not in repo |
 |---|---|
 | All Flutter/Dart source | Lambda source (in `/tmp/` locally) |
-| iOS project files | `build/` directory |
+| iOS project files | `android/key.properties` (signing secrets) |
+| Android project files | `build/` directory |
 | pubspec.yaml + lock | `ios/Pods/` |
 | .gitignore | `.dart_tool/` |
 | docs/ | Secrets / API keys |
+| `.github/workflows/ci.yml` | `local.properties` |
 
 ---
 

@@ -1,6 +1,6 @@
 # Frontend
 
-Flutter app targeting iOS (Android support planned). Minimum iOS deployment target: 13.0. Flutter SDK ≥ 3.19.0.
+Flutter app targeting iOS and Android. Minimum iOS deployment target: 13.0. Flutter SDK ≥ 3.19.0.
 
 ---
 
@@ -21,6 +21,8 @@ Flutter app targeting iOS (Android support planned). Minimum iOS deployment targ
 | `fl_chart` | ^0.67.0 | Stats charts |
 | `intl` | ^0.19.0 | Date formatting |
 | `uuid` | ^4.4.0 | Client-side ID generation |
+| `firebase_core` | ^3.6.0 | Firebase SDK initialisation |
+| `firebase_crashlytics` | ^4.1.3 | Crash reporting (iOS + Android) |
 
 ---
 
@@ -105,6 +107,10 @@ Most screens use `StatefulWidget` with manual state (not Riverpod) for local UI 
 - **PlayerProfileScreen** — player career stats, batting/bowling breakdown.
 - **TournamentSetupWizardScreen** — multi-step wizard: format → teams → schedule. AI-assisted team name suggestions and fixture generation.
 
+### Support screen (`lib/screens/support/`)
+
+- **SupportChatScreen** — AI-powered in-app support chat. Sends messages to `POST /support/chat` (Claude Haiku). Shows a 3-dot typing indicator while waiting, renders chat bubbles for user/assistant messages, and displays an escalation banner when the AI flags an issue for the team.
+
 ### Widgets (`lib/widgets/`)
 
 - **ClipPlayButton** — compact `▶ Clip` button shown on commentary rows. Taps open `ClipPlayerScreen`.
@@ -115,10 +121,29 @@ Most screens use `StatefulWidget` with manual state (not Riverpod) for local UI 
 
 ---
 
+## Utilities (`lib/utils/`)
+
+### `cricket_utils.dart`
+Pure stateless functions — no Flutter or network dependencies, making them trivially testable.
+
+| Function | Description |
+|---|---|
+| `CricketUtils.bowlerQuota(format, overs)` | Max overs a bowler may bowl (null = unlimited for Test) |
+| `CricketUtils.runRate(runs, balls)` | Current run rate (runs per over) |
+| `CricketUtils.requiredRunRate(target, scored, ballsLeft)` | Required run rate for 2nd innings |
+| `CricketUtils.oversDisplay(balls)` | Format ball count as "3.1" (3 overs 1 ball) |
+| `CricketUtils.isLegal(extraType)` | Returns false for wide/no-ball (don't advance over count) |
+| `CricketUtils.projectedScore(runs, balls, totalBalls)` | Projected final score at current rate |
+
+---
+
 ## Auth flow
 
 ```
 App launch
+    │
+    ▼
+Firebase.initializeApp()   ← Crashlytics hooks installed here
     │
     ▼
 FlutterSecureStorage.read('id_token')
@@ -179,6 +204,37 @@ final clip = _clips[key];
 
 ### MatchClip model
 Named `MatchClip` (not `Clip`) to avoid collision with Flutter's built-in `Clip` enum.
+
+---
+
+## Automated testing
+
+Tests live in `test/` and run automatically on every push via GitHub Actions (`.github/workflows/ci.yml`).
+
+```
+test/
+  widget_test.dart              — smoke test (runner sanity check)
+  unit/
+    models_test.dart            — AuthUser roles, Tournament status, BowlerStats,
+                                  MatchClip, Delivery.fromJson (flat + legacy formats)
+    cricket_utils_test.dart     — bowlerQuota, runRate, requiredRunRate,
+                                  oversDisplay, isLegal, projectedScore
+  widget/
+    login_screen_test.dart      — form rendering, validation errors, password toggle
+```
+
+**Running locally:**
+```bash
+flutter test                  # all 64 tests (~1s)
+flutter test test/unit/       # unit tests only (fastest)
+```
+
+**CI pipeline (GitHub Actions):**
+1. `flutter pub get`
+2. `flutter analyze --fatal-infos` — type errors + lint
+3. `flutter test --dart-define=ENV=dev` — all tests
+
+The pipeline runs on every push and pull request to `main`. A failing test blocks the commit from being considered clean.
 
 ---
 

@@ -5,39 +5,46 @@
 CricScore is a mobile-first cricket scoring platform with a serverless AWS backend. The iOS app communicates with two API layers — a REST API for data operations and a WebSocket API for real-time clip triggers.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        iOS App (Flutter)                        │
-│                                                                 │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │   Auth   │  │  REST calls  │  │  WebSocket (clip trigger) │  │
-│  │(Cognito) │  │  (api_svc)   │  │  (clip_ws_service.dart)  │  │
-│  └────┬─────┘  └──────┬───────┘  └────────────┬─────────────┘  │
-└───────┼───────────────┼───────────────────────┼────────────────┘
-        │               │                        │
-        ▼               ▼                        ▼
-┌───────────────┐ ┌─────────────────┐ ┌──────────────────────┐
-│  AWS Cognito  │ │  API Gateway    │ │  API Gateway         │
-│  User Pool    │ │  REST (HTTP)    │ │  WebSocket           │
-└───────────────┘ └────────┬────────┘ └──────────┬───────────┘
-                           │                      │
-              ┌────────────┼────────────┐          │
-              ▼            ▼            ▼          ▼
-        ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │  Lambda  │ │  Lambda  │ │  Lambda  │ │  Lambda  │
-        │  match   │ │tournamet │ │  clip    │ │   ws     │
-        └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
-             │            │            │            │
-             └────────────┼────────────┘            │
-                          ▼                         ▼
-                   ┌─────────────┐          ┌─────────────┐
-                   │  DynamoDB   │          │  DynamoDB   │
-                   │ CricScore-* │◄─────────│ (conn store)│
-                   └─────────────┘          └─────────────┘
-                          
-                   ┌─────────────┐   ┌─────────────────────┐
-                   │  S3 Bucket  │   │     CloudFront       │
-                   │(video clips)│──►│  (signed playUrls)   │
-                   └─────────────┘   └─────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                     iOS / Android App (Flutter)                      │
+│                                                                      │
+│  ┌──────────┐  ┌──────────────┐  ┌────────────────┐  ┌───────────┐  │
+│  │   Auth   │  │  REST calls  │  │  WebSocket     │  │ Firebase  │  │
+│  │(Cognito) │  │  (api_svc)   │  │ (clip trigger) │  │Crashlytics│  │
+│  └────┬─────┘  └──────┬───────┘  └───────┬────────┘  └─────┬─────┘  │
+└───────┼───────────────┼──────────────────┼────────────────┼─────────┘
+        │               │                  │                │
+        ▼               ▼                  ▼                ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────────┐
+│ AWS Cognito  │ │ API Gateway  │ │ API Gateway  │ │ Firebase Project │
+│  User Pool   │ │ REST (HTTP)  │ │  WebSocket   │ │  cricscore-ffd4a │
+└──────────────┘ └──────┬───────┘ └──────┬───────┘ └──────────────────┘
+                        │                │
+           ┌────────────┼──────────┐     │
+           ▼            ▼          ▼     ▼
+      ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+      │ Lambda  │ │ Lambda  │ │ Lambda  │ │ Lambda  │
+      │  match  │ │tournam. │ │  clip   │ │   ws    │
+      └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘
+           │           │           │           │
+      ┌────┴───────────┴───────────┘           │
+      ▼                                        ▼
+┌─────────────┐                        ┌─────────────┐
+│  DynamoDB   │◄───────────────────────│  DynamoDB   │
+│ CricScore-* │                        │ (conn store)│
+└─────────────┘                        └─────────────┘
+
+┌─────────────┐   ┌──────────────────┐
+│  S3 Bucket  │   │   CloudFront     │
+│(video clips)│──►│ (signed playUrls)│
+└─────────────┘   └──────────────────┘
+
+┌──────────────────────────────────────────────────┐
+│              Monitoring (CloudWatch)             │
+│  19 alarms → SNS → email bellarykirankumar@      │
+│  Lambda errors/duration · API GW 5XX/latency ·  │
+│  DynamoDB throttles                              │
+└──────────────────────────────────────────────────┘
 ```
 
 ---
@@ -88,6 +95,7 @@ The clip Lambda generates a presigned PUT URL. The device uploads directly to S3
 | `cricscore-clip-{env}` | Presign URL, save/list clips | `handler.handler` |
 | `cricscore-ws-{env}` | WebSocket connect/disconnect/trigger | `handler.handler` |
 | `cricscore-ai-{env}` | Claude API: team names, schedule, commentary | `src/index.handler` |
+| `cricscore-support-{env}` | AI support chat (Claude Haiku), escalation emails | `src/handler.handler` |
 
 ### DynamoDB
 
@@ -119,6 +127,20 @@ Token storage: `flutter_secure_storage` (iOS Keychain).
 
 ### IAM
 Single execution role: `CricScoreLambdaRole` — used by all Lambda functions.
+
+### Firebase
+- **Project:** `cricscore-ffd4a` (Spark / free plan)
+- **Services:** Crashlytics (iOS + Android)
+- **Console:** https://console.firebase.google.com/project/cricscore-ffd4a/crashlytics
+
+### Monitoring (CloudWatch + SNS)
+- **SNS topic:** `cricscore-alerts` → subscription to `bellarykirankumar@gmail.com`
+- **19 CloudWatch alarms** across all prod resources:
+  - 8 × Lambda error alarms (one per function)
+  - 8 × Lambda duration alarms (fires if any function exceeds 10 s)
+  - 1 × API Gateway 5XX errors (≥3 in 60 s)
+  - 1 × API Gateway high latency (avg >5 s over 5 min)
+  - 1 × DynamoDB throttled requests
 
 ---
 
