@@ -4,13 +4,14 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/models.dart';
 import 'auth_service.dart';
+import '../config.dart' as config;
 
 // ─────────────────────────────────────────────────────────────
 //  CricScore API Service
 //  Calls the existing AWS API Gateway endpoints
 // ─────────────────────────────────────────────────────────────
 
-const _baseUrl = 'https://r78anm7dvb.execute-api.us-east-1.amazonaws.com/dev';
+const _baseUrl = config.apiBase;
 const _storage = FlutterSecureStorage();
 
 class ApiException implements Exception {

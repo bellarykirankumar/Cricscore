@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import '../config.dart' as config;
 
 // ── Clip WebSocket Service ────────────────────────────────────
 // Manages the persistent WebSocket connection to API Gateway.
@@ -15,8 +16,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 //   ClipWsService.instance.sendClipTrigger(...);
 //   ClipWsService.instance.disconnect();
 
-// IMPORTANT: replace this URL after creating the API Gateway WebSocket API.
-const _wsUrl = 'wss://2fziydn0oj.execute-api.us-east-1.amazonaws.com/dev';
+const _wsUrl = config.wsUrl;
 
 class ClipTriggerEvent {
   final String matchId;

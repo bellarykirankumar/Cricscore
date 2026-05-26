@@ -2,14 +2,15 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/models.dart';
+import '../config.dart' as config;
 
 // ─────────────────────────────────────────────────────────────
 //  Cognito Auth Service (no Amplify dependency)
 // ─────────────────────────────────────────────────────────────
 
-const _userPoolId    = 'us-east-1_9H7UT8B1I';
-const _clientId      = '126l3iutfb2a6qpf2jhapligsg';
-const _region        = 'us-east-1';
+const _userPoolId    = config.cognitoPoolId;
+const _clientId      = config.cognitoClientId;
+const _region        = config.cognitoRegion;
 const _cognitoUrl    = 'https://cognito-idp.$_region.amazonaws.com/';
 const _storage       = FlutterSecureStorage();
 
