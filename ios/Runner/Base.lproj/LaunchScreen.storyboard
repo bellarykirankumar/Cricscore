@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23504"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+    </dependencies>
+    <scenes>
+        <!--View Controller-->
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <!-- Cricket emoji -->
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="🏏" textAlignment="center" lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="emojiLabel" userLabel="Emoji">
+                                <rect key="frame" x="146" y="326" width="100" height="70"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="56"/>
+                                <color key="textColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <!-- App name -->
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="CricScore" textAlignment="center" lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="nameLabel" userLabel="AppName">
+                                <rect key="frame" x="50" y="412" width="293" height="44"/>
+                                <fontDescription key="fontDescription" type="boldSystem" pointSize="36"/>
+                                <color key="textColor" red="0.933" green="0.933" blue="0.961" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <!-- Green accent bar -->
+                            <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="accentBar" userLabel="AccentBar">
+                                <rect key="frame" x="166" y="464" width="60" height="3"/>
+                                <color key="backgroundColor" red="0.0" green="0.898" blue="0.627" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                            </view>
+                            <!-- Tagline -->
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="AI-Powered Cricket Scoring" textAlignment="center" lineBreakMode="middleTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="taglineLabel" userLabel="Tagline">
+                                <rect key="frame" x="50" y="479" width="293" height="20"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="13"/>
+                                <color key="textColor" red="0.533" green="0.533" blue="0.600" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                        <viewLayoutGuide key="safeAreaLayoutGuide" id="Bcu-3y-fUS"/>
+                        <!-- Background: #0A0A0F -->
+                        <color key="backgroundColor" red="0.039" green="0.039" blue="0.059" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <!-- Emoji: fixed size, centered horizontally, anchor group to center Y -->
+                            <constraint firstItem="emojiLabel" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="emoji-cx"/>
+                            <constraint firstItem="emojiLabel" firstAttribute="width" constant="100" id="emoji-w"/>
+                            <constraint firstItem="emojiLabel" firstAttribute="height" constant="70" id="emoji-h"/>
+                            <constraint firstItem="emojiLabel" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" constant="-65" id="emoji-cy"/>
+                            <!-- App name: below emoji -->
+                            <constraint firstItem="nameLabel" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="name-cx"/>
+                            <constraint firstItem="nameLabel" firstAttribute="top" secondItem="emojiLabel" secondAttribute="bottom" constant="16" id="name-top"/>
+                            <!-- Accent bar: below name, centered, fixed size -->
+                            <constraint firstItem="accentBar" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="accent-cx"/>
+                            <constraint firstItem="accentBar" firstAttribute="top" secondItem="nameLabel" secondAttribute="bottom" constant="8" id="accent-top"/>
+                            <constraint firstItem="accentBar" firstAttribute="width" constant="60" id="accent-w"/>
+                            <constraint firstItem="accentBar" firstAttribute="height" constant="3" id="accent-h"/>
+                            <!-- Tagline: below accent bar, centered -->
+                            <constraint firstItem="taglineLabel" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="tagline-cx"/>
+                            <constraint firstItem="taglineLabel" firstAttribute="top" secondItem="accentBar" secondAttribute="bottom" constant="12" id="tagline-top"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="53" y="375"/>
+        </scene>
+    </scenes>
+</document>
