@@ -67,8 +67,8 @@ class _FixtureTossSheetState extends State<_FixtureTossSheet> {
         PlayerApi.list(widget.fixture.homeTeamId).catchError((_) => <Player>[]),
         PlayerApi.list(widget.fixture.awayTeamId).catchError((_) => <Player>[]),
       ]);
-      final home = results[0] as List<Player>;
-      final away = results[1] as List<Player>;
+      final home = results[0];
+      final away = results[1];
       if (!mounted) return;
       setState(() {
         _homeRoster = home;

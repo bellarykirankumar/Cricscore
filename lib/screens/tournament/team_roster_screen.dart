@@ -8,7 +8,6 @@ import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/models.dart';
 import '../../main.dart';
-import '../../widgets/country_picker_sheet.dart';
 import 'player_profile_screen.dart';
 
 class TeamRosterScreen extends ConsumerStatefulWidget {
@@ -580,7 +579,7 @@ class _PlayerSearchSheetState extends State<_PlayerSearchSheet> {
                   ),
                   title: Text(p.name, style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w600)),
                   subtitle: Text(
-                    [p.playerCode, p.role.replaceAll('_', ' ')].where((s) => s != null && s!.isNotEmpty).join(' · '),
+                    [p.playerCode, p.role.replaceAll('_', ' ')].where((s) => s != null && s.isNotEmpty).join(' · '),
                     style: const TextStyle(color: AppColors.text2, fontSize: 12)),
                   trailing: TextButton(
                     onPressed: () => Navigator.pop(context, p),

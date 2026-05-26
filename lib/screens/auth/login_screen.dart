@@ -16,7 +16,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _loading    = false;
   bool _obscure    = true;
   String? _error;
-  bool _showForgot = false;
   bool _showSignup = false;
 
   @override void dispose() {

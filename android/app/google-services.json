@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "554782593304",
+    "project_id": "cricscore-ffd4a",
+    "storage_bucket": "cricscore-ffd4a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:554782593304:android:939491da361699bd234e6d",
+        "android_client_info": {
+          "package_name": "com.bellark.cricscore"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBY2KF2Wk6bC9vSvWJ4AlATiv4I_iKa-3M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

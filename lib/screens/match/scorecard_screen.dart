@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../models/models.dart';
-import '../../widgets/clip_player_widget.dart';
 import 'commentary_screen.dart';
 import 'highlights_gallery_screen.dart';
 

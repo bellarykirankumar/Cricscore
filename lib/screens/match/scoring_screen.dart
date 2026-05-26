@@ -1244,7 +1244,6 @@ class _DismissalSheetState extends State<_DismissalSheet> {
     ('Retired Hurt', 'retired_hurt', false),
   ];
 
-  bool get _needsFielder => _selectedType == 'caught' || _selectedType == 'run_out' || _selectedType == 'stumped';
 
   @override Widget build(BuildContext context) {
     return Container(

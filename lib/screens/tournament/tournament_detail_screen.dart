@@ -6,7 +6,6 @@ import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/models.dart';
 import '../../main.dart';
-import '../match/scoring_screen.dart';
 
 class TournamentDetailScreen extends ConsumerStatefulWidget {
   final String tournamentId;
@@ -22,7 +21,6 @@ class _TournamentDetailState extends ConsumerState<TournamentDetailScreen>
   List<Fixture>      _fixtures    = [];
   List<Map<String, dynamic>> _standings = [];
   bool               _loading     = true;
-  bool               _saving      = false;
   bool               _isLocalOwner = false;
 
   @override void initState() {
@@ -448,8 +446,8 @@ class _FixturesTabState extends State<_FixturesTab> {
         PlayerApi.list(f.homeTeamId).catchError((_) => <Player>[]),
         PlayerApi.list(f.awayTeamId).catchError((_) => <Player>[]),
       ]);
-      final home = results[0] as List<Player>;
-      final away = results[1] as List<Player>;
+      final home = results[0];
+      final away = results[1];
       setState(() {
         _homeRoster = home; _awayRoster = away;
         _homeSel = home.take(11).map((p) => p.id).toSet();

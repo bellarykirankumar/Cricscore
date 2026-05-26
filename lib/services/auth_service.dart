@@ -8,7 +8,6 @@ import '../config.dart' as config;
 //  Cognito Auth Service (no Amplify dependency)
 // ─────────────────────────────────────────────────────────────
 
-const _userPoolId    = config.cognitoPoolId;
 const _clientId      = config.cognitoClientId;
 const _region        = config.cognitoRegion;
 const _cognitoUrl    = 'https://cognito-idp.$_region.amazonaws.com/';

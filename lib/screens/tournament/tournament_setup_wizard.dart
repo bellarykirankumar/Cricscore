@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
-import '../../models/models.dart';
 import '../../main.dart';
 
 // ── Data model for wizard state ────────────────────────────────
