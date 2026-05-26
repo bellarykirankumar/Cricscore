@@ -29,7 +29,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   bool _loading = false;
   bool _escalated = false;
 
-  static const _welcomeMessage = _Message(
+  static final _welcomeMessage = _Message(
     role: 'assistant',
     content: "Hi! I'm the CricScore support assistant 🏏\n\nI can help with scoring, tournaments, teams, video clips, and more. What can I help you with?",
   );
@@ -59,8 +59,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     _scrollToBottom();
 
     try {
-      final token = await AuthService.getIdToken();
-      final user  = await AuthService.getCachedUser();
+      final user = await AuthService.instance.restoreSession();
 
       // Build history for Claude (exclude welcome message)
       final history = _messages
@@ -72,7 +71,6 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
         Uri.parse('${config.apiBase}/support/chat'),
         headers: {
           'Content-Type': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
           'message': text,
@@ -109,7 +107,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
   void _addError() {
     setState(() {
-      _messages.add(const _Message(
+      _messages.add(_Message(
         role: 'assistant',
         content: "Sorry, I'm having trouble connecting. Please try again or email bellarykirankumar@gmail.com directly.",
       ));
