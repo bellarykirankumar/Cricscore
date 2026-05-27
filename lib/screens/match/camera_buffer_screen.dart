@@ -101,11 +101,22 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
     }
 
     while (_buffering) {
+      // Pause the loop while a clip capture is in progress — _captureAndUpload
+      // stops the current recording itself and restarts after upload.
+      if (_capturing) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        continue;
+      }
+      // Guard: don't double-start if camera is already recording.
+      if (_cam!.value.isRecordingVideo) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        continue;
+      }
       try {
         await _cam!.startVideoRecording();
         await Future.delayed(const Duration(seconds: _segmentSecs));
-        if (!_buffering) {
-          try { await _cam!.stopVideoRecording(); } catch (_) {}
+        if (!_buffering || _capturing) {
+          // Capture took over mid-segment — let _captureAndUpload handle stop.
           break;
         }
         final xFile = await _cam!.stopVideoRecording();
@@ -154,7 +165,15 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
     if (_capturing || _cam == null) return;
     setState(() { _capturing = true; _status = '🎬 Capturing post-roll…'; });
 
-    final preSegments = _buffer.toList(); // snapshot current buffer
+    // Snapshot current buffer, then stop any in-flight buffer segment so
+    // we can start post-roll cleanly (avoids "already recording" exception).
+    final preSegments = _buffer.toList();
+    if (_cam!.value.isRecordingVideo) {
+      try {
+        final xFile = await _cam!.stopVideoRecording();
+        preSegments.add(File(xFile.path)); // include the partial segment
+      } catch (_) {}
+    }
 
     try {
       // Record 5 seconds after the event
