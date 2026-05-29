@@ -987,7 +987,10 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                 else
                   Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                     const Text('Projected', style: TextStyle(color: AppColors.text2, fontSize: 12)),
-                    Text('${inn.projectedScore ?? 0}', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.accent)),
+                    Text(
+                      '${CricketUtils.projectedScore(inn.totalRuns, inn.totalBalls, match.oversPerInnings * 6)}',
+                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.accent),
+                    ),
                   ]),
               ]),
               const SizedBox(height: 8),
