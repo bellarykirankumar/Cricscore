@@ -359,6 +359,9 @@ class Delivery {
   final bool isWicket, isLegalDelivery;
   final String? extraType;
   final String batsmanId, nonStrikerId, bowlerId;
+  // AI commentary text — written by the AI Lambda and persisted in DynamoDB.
+  // Empty string until the Lambda is updated to save it back.
+  final String commentary;
 
   const Delivery({
     required this.overNumber, required this.ballNumber,
@@ -366,6 +369,7 @@ class Delivery {
     required this.isWicket, required this.isLegalDelivery,
     this.extraType,
     required this.batsmanId, required this.nonStrikerId, required this.bowlerId,
+    this.commentary = '',
   });
 
   factory Delivery.fromJson(Map<String, dynamic> j) => Delivery(
@@ -384,6 +388,7 @@ class Delivery {
     batsmanId:         j['batsmanId']        as String? ?? '',
     nonStrikerId:      j['nonStrikerId']     as String? ?? '',
     bowlerId:          j['bowlerId']         as String? ?? '',
+    commentary:        j['commentary']       as String? ?? '',
   );
 }
 

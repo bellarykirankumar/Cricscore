@@ -127,6 +127,7 @@ class _CommentaryScreenState extends State<CommentaryScreen>
   String _filter = 'all';
   // clipKey = "innings_over_ball" → MatchClip
   Map<String, MatchClip> _clips = {};
+  bool _apiLoading = false;
 
   @override void initState() {
     super.initState();
@@ -135,6 +136,9 @@ class _CommentaryScreenState extends State<CommentaryScreen>
       _filter = ['all', 'boundary', 'wicket'][_tabs.index];
     }));
     _loadClips();
+    // Always load from API — fills the store for any user (admin, viewer)
+    // and merges AI text once the Lambda starts saving it to DynamoDB.
+    _loadFromApi();
   }
 
   @override void dispose() { _tabs.dispose(); super.dispose(); }
@@ -149,6 +153,47 @@ class _CommentaryScreenState extends State<CommentaryScreen>
       }
       if (mounted) setState(() => _clips = map);
     } catch (_) {}
+  }
+
+  /// Loads deliveries from the backend and populates CommentaryStore.
+  /// Works for any user (admin, viewer) who didn't score the match live.
+  /// Also picks up AI text once the Lambda starts persisting it to DynamoDB.
+  Future<void> _loadFromApi() async {
+    if (_apiLoading) return;
+    _apiLoading = true;
+    try {
+      final match = await MatchApi.get(widget.matchId);
+
+      // Build player ID → name lookup from both squads.
+      final playerNames = <String, String>{};
+      for (final p in [...?match.team1?.players, ...?match.team2?.players]) {
+        playerNames[p.id] = p.name;
+      }
+
+      // Fetch each innings and convert deliveries to CommentaryEntries.
+      for (final inn in match.innings ?? []) {
+        final full = await MatchApi.getInnings(widget.matchId, inn.inningsNumber);
+        for (final d in full.deliveries ?? []) {
+          final entry = CommentaryEntry(
+            innings:   full.inningsNumber,
+            over:      d.overNumber,
+            ball:      d.ballNumber + 1, // Delivery is 0-based; CommentaryEntry is 1-based
+            batsman:   playerNames[d.batsmanId]  ?? d.batsmanId,
+            bowler:    playerNames[d.bowlerId]   ?? d.bowlerId,
+            runs:      d.runsBatsman,
+            extra:     d.extraType,
+            isWicket:  d.isWicket,
+            text:      d.commentary, // empty until Lambda saves it; non-empty after
+          );
+          CommentaryStore.addOrUpdate(widget.matchId, entry);
+        }
+      }
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Best-effort — if API fails, show whatever is already in the store.
+    } finally {
+      _apiLoading = false;
+    }
   }
 
   // CommentaryEntry.ball is 1-based; MatchClip.ball is 0-based.
