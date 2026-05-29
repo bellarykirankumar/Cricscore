@@ -20,6 +20,7 @@ import 'screens/tournament/tournament_detail_screen.dart';
 import 'screens/tournament/team_roster_screen.dart';
 import 'screens/tournament/tournament_setup_wizard.dart';
 import 'screens/match/commentary_screen.dart';
+import 'screens/match/camera_buffer_screen.dart';
 
 // ── Auth State Provider ───────────────────────────────────────
 final authProvider = StateNotifierProvider<AuthNotifier, AsyncValue<AuthUser?>>((ref) {
@@ -85,6 +86,12 @@ final _router = GoRouter(
       builder: (_, state) => CommentaryScreen(
         matchId: state.pathParameters['matchId']!,
         matchTitle: state.uri.queryParameters['title'],
+      ),
+    ),
+    GoRoute(
+      path: '/camera',
+      builder: (_, state) => CameraBufferScreen(
+        matchId: state.uri.queryParameters['matchId'],
       ),
     ),
     GoRoute(path: '/tournaments', builder: (_, __) => const TournamentListScreen()),

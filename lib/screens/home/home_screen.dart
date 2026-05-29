@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import '../../main.dart';
 import '../../widgets/country_picker_sheet.dart';
 import '../support/support_chat_screen.dart';
+import '../match/camera_buffer_screen.dart';
 import 'fixture_toss_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -235,6 +236,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ownedIds: _ownedIds),
               _TournamentsTab(tours: _tours, onRefresh: _load, user: user),
               _TeamsTab(tours: _tours, onRefresh: _load),
+              const _CameraTab(),
             ],
           ),
       bottomNavigationBar: BottomNavigationBar(
@@ -259,6 +261,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             icon: Icon(Icons.group_outlined),
             activeIcon: Icon(Icons.group),
             label: 'Teams',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.videocam_outlined),
+            activeIcon: Icon(Icons.videocam),
+            label: 'Camera',
           ),
         ],
       ),
@@ -804,5 +811,15 @@ class _TeamsTab extends StatelessWidget {
         ),
       const SizedBox(height: 80),
     ]);
+  }
+}
+
+// ── Camera Tab ────────────────────────────────────────────────
+// Phone 2 goes here: tap Camera in bottom nav → enter match ID → start buffering.
+class _CameraTab extends StatelessWidget {
+  const _CameraTab();
+  @override
+  Widget build(BuildContext context) {
+    return const CameraBufferScreen();
   }
 }
