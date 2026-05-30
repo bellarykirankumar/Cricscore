@@ -10,6 +10,12 @@ import '../config.dart' as config;
 //   • Scorer device  — calls sendClipTrigger() after a wicket/boundary
 //   • Camera device  — listens to onTrigger stream to start clip recording
 //
+// Single-device mode (scoring + camera on the same phone):
+//   The Lambda filters out the sender's own connection, so WebSocket
+//   triggers never loop back. We solve this with a local broadcast stream
+//   (_localTrigger) that sendClipTrigger() always fires — the camera
+//   screen receives it instantly without going through the network.
+//
 // Usage:
 //   await ClipWsService.instance.connect(matchId);
 //   ClipWsService.instance.onTrigger.listen((t) { /* record clip */ });
@@ -51,8 +57,17 @@ class ClipWsService {
   StreamSubscription? _sub;
   String? _matchId;
 
+  // Remote triggers — received from other devices via WebSocket
   final _triggerCtrl = StreamController<ClipTriggerEvent>.broadcast();
-  Stream<ClipTriggerEvent> get onTrigger => _triggerCtrl.stream;
+
+  // Local triggers — fired immediately when THIS device scores an event.
+  // Allows the camera screen to react when running on the same phone as scorer.
+  static final _localTrigger = StreamController<ClipTriggerEvent>.broadcast();
+
+  /// Combined stream: receives triggers from both WebSocket (other devices)
+  /// and local events (same device). Camera screen subscribes to this.
+  Stream<ClipTriggerEvent> get onTrigger =>
+      StreamGroup.merge([_triggerCtrl.stream, _localTrigger.stream]);
 
   bool get isConnected => _channel != null;
 
@@ -90,6 +105,7 @@ class ClipWsService {
   }
 
   /// Send a clip trigger to all camera devices watching the same match.
+  /// Also fires locally so the camera works when running on the same device.
   void sendClipTrigger({
     required String matchId,
     required int inningsNumber,
@@ -97,8 +113,20 @@ class ClipWsService {
     required int ball,
     required String event, // 'wicket' | 'four' | 'six'
   }) {
-    if (_channel == null) return;
-    _channel!.sink.add(jsonEncode({
+    final trigger = ClipTriggerEvent(
+      matchId: matchId,
+      inningsNumber: inningsNumber,
+      over: over,
+      ball: ball,
+      event: event,
+      ts: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    // Always fire locally — camera screen on same device gets it immediately
+    _localTrigger.add(trigger);
+
+    // Also send via WebSocket for camera devices on other phones
+    _channel?.sink.add(jsonEncode({
       'action': 'clipTrigger',
       'matchId': matchId,
       'inningsNumber': inningsNumber,
@@ -119,5 +147,17 @@ class ClipWsService {
   void dispose() {
     disconnect();
     _triggerCtrl.close();
+  }
+}
+
+// ── StreamGroup helper ────────────────────────────────────────
+// Merges multiple streams into one without a package dependency.
+class StreamGroup {
+  static Stream<T> merge<T>(List<Stream<T>> streams) {
+    final ctrl = StreamController<T>.broadcast();
+    for (final s in streams) {
+      s.listen(ctrl.add, onError: ctrl.addError);
+    }
+    return ctrl.stream;
   }
 }
