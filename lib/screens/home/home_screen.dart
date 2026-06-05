@@ -39,18 +39,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) context.go('/login'); });
       return;
     }
-    // Always attempt geo-detection — overrides any stored value so country
-    // stays accurate if the user moves or reinstalls.
     final detected = await GeoService.detectCountry();
     if (detected != null && countryName(detected) != detected) {
-      // Detected country is in our cricket list → set silently, no prompt.
       await AuthService.instance.setCountry(detected);
       if (mounted) setState(() => _userCountry = detected);
     } else {
-      // Geo failed or returned an unsupported country → fall back to stored.
       _userCountry = await AuthService.instance.getCountry();
       if (_userCountry == null && mounted) {
-        // No stored country either — show required picker (no skip option).
         String? picked;
         while (picked == null) {
           picked = await showModalBottomSheet<String>(
@@ -71,7 +66,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      // Phase 1: load matches, tournaments, and owned-ids in parallel.
       final phase1 = await Future.wait([
         MatchApi.live().catchError((_) => <CricMatch>[]),
         MatchApi.list().catchError((_) => <CricMatch>[]),
@@ -83,8 +77,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final storedOwnedIds = phase1[3] as Set<String>;
       final user           = ref.read(authProvider).value;
 
-      // Re-hydrate owned_ids from backend's createdBy field (recovers after
-      // re-login when local cache was empty, if backend returns createdBy).
       final backendConfirmed = <String>{};
       if (user?.sub != null) {
         for (final t in phase1[2] as List<Tournament>) {
@@ -97,7 +89,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (m.createdBy == user!.sub) backendConfirmed.add(m.id);
         }
         if (backendConfirmed.isNotEmpty) {
-          // Persist in background without blocking the UI.
           AuthService.instance.mergeOwnedIds(backendConfirmed);
         }
       }
@@ -106,19 +97,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final tours = (phase1[2] as List<Tournament>).where((t) =>
         t.status != 'completed' && t.status != 'deleted' && t.status != 'archived')
         .where((t) {
-          if (user?.isAdmin == true) return true;           // admins see all countries
-          if (user?.isScorerFor(t) == true) return true;   // invited scorers always see it
-          if (_userCountry == null) return true;            // no filter set
-          if (t.country == _userCountry) return true;      // explicit country match
-          // Own untagged tournaments always visible (backend may not return country).
+          if (user?.isAdmin == true) return true;
+          if (user?.isScorerFor(t) == true) return true;
+          if (_userCountry == null) return true;
+          if (t.country == _userCountry) return true;
           if (t.country == null &&
               (ownedIds.contains(t.id) || user?.canManage(t.createdBy) == true)) return true;
-          return false;                                     // different explicit country → hide
+          return false;
         })
         .toList();
       final tourIds = tours.map((t) => t.id).toSet();
 
-      // Phase 2: fetch fixtures only for country-filtered tournaments.
       final allFix = await TournamentApi
         .getAllFixtures(allowedTourIds: tourIds.isEmpty ? null : tourIds)
         .catchError((_) => <Map<String, dynamic>>[]);
@@ -126,8 +115,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       final now = DateTime.now();
       setState(() {
-        bool _matchVisible(CricMatch m) {
-          if (user?.isAdmin == true) return true;       // admins see all countries
+        bool matchVisible(CricMatch m) {
+          if (user?.isAdmin == true) return true;
           if (_userCountry == null) return true;
           if (m.tournamentId != null) return tourIds.contains(m.tournamentId);
           if (m.country == _userCountry) return true;
@@ -139,11 +128,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _tours    = tours;
         _live     = (phase1[0] as List<CricMatch>)
           .where((m) => m.status == 'in_progress' || m.status == 'innings_break')
-          .where(_matchVisible)
+          .where(matchVisible)
           .toList();
         _recent   = (phase1[1] as List<CricMatch>)
           .where((m) => m.status == 'completed')
-          .where(_matchVisible)
+          .where(matchVisible)
           .take(10)
           .toList();
         _todayFixtures = allFix.where((e) {
@@ -239,6 +228,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const _CameraTab(),
             ],
           ),
+      floatingActionButton: _selectedIndex == 0
+        ? FloatingActionButton(
+            onPressed: () => context.push('/setup').then((_) => _load()),
+            backgroundColor: AppColors.accent,
+            foregroundColor: AppColors.textOnAcc,
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: const Icon(Icons.add, size: 28),
+          )
+        : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (i) => setState(() => _selectedIndex = i),
@@ -269,7 +268,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: null,
     );
   }
 
@@ -371,7 +369,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     setState(() => _loading = true);
     try {
       await ref.read(authProvider.notifier).deleteAccount();
-      // ref.listen will fire when auth becomes null and navigate to /login
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
@@ -426,6 +423,74 @@ String _formatTime(String dateStr) {
   } catch (_) { return dateStr; }
 }
 
+// ── Strip Card ────────────────────────────────────────────────
+// Cards with a coloured left-edge status strip (inspired by CricClubs).
+class _StripCard extends StatelessWidget {
+  final Widget child;
+  final Color stripColor;
+  final String stripLabel;
+  final VoidCallback? onTap;
+  final Color? borderColor;
+
+  const _StripCard({
+    required this.child,
+    required this.stripColor,
+    required this.stripLabel,
+    this.onTap,
+    this.borderColor,
+  });
+
+  @override Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppColors.cardGradTop, AppColors.cardGradBot],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor ?? AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: IntrinsicHeight(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              // Left status strip
+              Container(
+                width: 22,
+                color: stripColor,
+                child: Center(
+                  child: RotatedBox(
+                    quarterTurns: 3,
+                    child: Text(
+                      stripLabel,
+                      style: const TextStyle(
+                        fontSize: 8, fontWeight: FontWeight.w900,
+                        color: Colors.white, letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: child,
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Home Tab ──────────────────────────────────────────────────
 class _HomeTab extends StatelessWidget {
   final List<CricMatch> live, recent;
@@ -451,8 +516,9 @@ class _HomeTab extends StatelessWidget {
       child: ListView(children: [
         // Live matches
         if (live.isNotEmpty) ...[
-          const SectionHeader(title: 'Live matches'),
-          ...live.map((m) => _LiveMatchCard(match: m, onEndMatch: onEndMatch, user: user, ownedIds: ownedIds)),
+          const SectionHeader(title: 'Live now'),
+          ...live.map((m) => _LiveMatchCard(
+            match: m, onEndMatch: onEndMatch, user: user, ownedIds: ownedIds)),
         ],
 
         // Today's fixtures
@@ -462,7 +528,9 @@ class _HomeTab extends StatelessWidget {
             final f = entry['fixture'] as Fixture;
             final t = entry['tournament'] as Tournament;
             final hasMatch = f.matchId != null;
-            return AppCard(
+            return _StripCard(
+              stripColor: AppColors.four,
+              stripLabel: 'TODAY',
               child: Row(children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${f.homeTeamName} vs ${f.awayTeamName}',
@@ -475,66 +543,24 @@ class _HomeTab extends StatelessWidget {
                       style: const TextStyle(color: AppColors.ball, fontSize: 12)),
                   ],
                 ])),
-                if (hasMatch)
-                  GestureDetector(
-                    onTap: () => context.push('/scoring/${f.matchId}').then((_) => onRefresh()),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.accent.withOpacity(0.4)),
-                      ),
-                      child: const Text('Resume', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700, fontSize: 13)),
-                    ),
-                  )
-                else
-                  GestureDetector(
-                    onTap: () => showTossSheet(context, f, t, onRefresh),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.four.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.four.withOpacity(0.4)),
-                      ),
-                      child: const Text('Start', style: TextStyle(color: AppColors.four, fontWeight: FontWeight.w700, fontSize: 13)),
-                    ),
-                  ),
+                _ActionBtn(
+                  label: hasMatch ? 'Resume' : 'Start',
+                  color: hasMatch ? AppColors.accent : AppColors.four,
+                  onTap: hasMatch
+                    ? () => context.push('/scoring/${f.matchId}').then((_) => onRefresh())
+                    : () => showTossSheet(context, f, t, onRefresh),
+                ),
               ]),
             );
           }),
         ],
 
-
-        // Quick actions
-        if (user != null) ...[
-          const SectionHeader(title: 'Quick actions'),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(children: [
-              Expanded(child: _QuickAction(
-                icon: Icons.sports_cricket,
-                label: 'New match',
-                color: AppColors.accent,
-                onTap: () => context.push('/setup').then((_) => onRefresh()),
-              )),
-              const SizedBox(width: 10),
-              Expanded(child: _QuickAction(
-                icon: Icons.emoji_events_outlined,
-                label: 'Tournaments',
-                color: AppColors.ball,
-                onTap: () => context.push('/tournaments').then((_) => onRefresh()),
-              )),
-            ]),
-          ),
-          const SizedBox(height: 8),
-        ],
-
         // Active tournaments
         if (tours.isNotEmpty) ...[
-          const SectionHeader(title: 'Active tournaments'),
-          ...tours.map((t) => AppCard(
+          const SectionHeader(title: 'Tournaments'),
+          ...tours.map((t) => _StripCard(
+            stripColor: t.isActive ? AppColors.accent : AppColors.ball,
+            stripLabel: t.isActive ? 'ACTIVE' : 'SOON',
             onTap: () => context.push('/tournament/${t.id}').then((_) => onRefresh()),
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -544,10 +570,7 @@ class _HomeTab extends StatelessWidget {
                 Text('${t.teamCount} teams · ${t.format}',
                   style: const TextStyle(color: AppColors.text2, fontSize: 13)),
               ])),
-              StatusBadge(
-                label: t.isActive ? 'Active' : 'Upcoming',
-                color: t.isActive ? AppColors.accent : AppColors.ball,
-              ),
+              const Icon(Icons.chevron_right, color: AppColors.text3, size: 20),
             ]),
           )),
         ],
@@ -555,7 +578,9 @@ class _HomeTab extends StatelessWidget {
         // Recent results
         if (recent.isNotEmpty) ...[
           const SectionHeader(title: 'Recent results'),
-          ...recent.map((m) => AppCard(
+          ...recent.map((m) => _StripCard(
+            stripColor: AppColors.text3,
+            stripLabel: 'DONE',
             onTap: () => context.push('/scorecard/${m.id}'),
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -569,6 +594,8 @@ class _HomeTab extends StatelessWidget {
               ])),
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Text(m.format, style: const TextStyle(color: AppColors.ball, fontSize: 13)),
+                const SizedBox(height: 4),
+                const Icon(Icons.chevron_right, color: AppColors.text3, size: 20),
               ]),
             ]),
           )),
@@ -583,79 +610,72 @@ class _HomeTab extends StatelessWidget {
               Text('No matches yet', style: TextStyle(
                 fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.text)),
               SizedBox(height: 8),
-              Text('Start a match or create a tournament',
+              Text('Tap + to start a match or create a tournament',
                 style: TextStyle(color: AppColors.text2)),
             ]),
           ),
-        const SizedBox(height: 80),
+        const SizedBox(height: 100),
       ]),
     );
   }
 }
 
+// ── Live Match Card ───────────────────────────────────────────
 class _LiveMatchCard extends StatelessWidget {
   final CricMatch match;
   final Future<void> Function(String) onEndMatch;
   final AuthUser? user;
   final Set<String> ownedIds;
 
-  const _LiveMatchCard({required this.match, required this.onEndMatch, required this.user, required this.ownedIds});
+  const _LiveMatchCard({
+    required this.match, required this.onEndMatch,
+    required this.user, required this.ownedIds,
+  });
 
   @override Widget build(BuildContext context) {
     final inn = match.innings?.where((i) => i.status == 'in_progress').firstOrNull;
     final batting = match.team1?.id == inn?.battingTeamId ? match.team1 : match.team2;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.accent.withOpacity(0.3)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => context.push('/scoring/${match.id}'),
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                const LiveBadge(),
-                const Spacer(),
-                if (user?.isScorer == true)
-                  _ActionBtn('Score', AppColors.accent,
-                    () => context.push('/scoring/${match.id}')),
-                if (user?.canManage(match.createdBy) == true || ownedIds.contains(match.id)) ...[
-                  const SizedBox(width: 8),
-                  _ActionBtn('End', AppColors.wicket, () => onEndMatch(match.id)),
-                ],
-              ]),
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(child: Text(
-                  '${match.team1?.name ?? '—'} vs ${match.team2?.name ?? '—'}',
-                  style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15),
-                )),
-                Text(match.format, style: const TextStyle(color: AppColors.ball, fontSize: 13)),
-              ]),
-              if (inn != null && batting != null) ...[
-                const SizedBox(height: 8),
-                Text('${batting.name} batting',
-                  style: const TextStyle(color: AppColors.text2, fontSize: 12)),
-                const SizedBox(height: 4),
-                Text(scoreFmt(inn.totalRuns, inn.totalWickets),
-                  style: const TextStyle(
-                    fontSize: 40, fontWeight: FontWeight.w800,
-                    letterSpacing: -1.5, color: AppColors.text,
-                  )),
-                Text('${ballsToOvers(inn.totalBalls)} ov · CRR ${inn.currentRunRate.toStringAsFixed(1)}',
-                  style: const TextStyle(color: AppColors.text2, fontSize: 13)),
-              ],
-            ]),
-          ),
-        ),
-      ),
+    return _StripCard(
+      stripColor: AppColors.wicket,
+      stripLabel: 'LIVE',
+      borderColor: AppColors.accent.withOpacity(0.35),
+      onTap: () => context.push('/scoring/${match.id}'),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const LiveBadge(),
+          const Spacer(),
+          if (user?.isScorer == true)
+            _ActionBtn(label: 'Score', color: AppColors.accent,
+              onTap: () => context.push('/scoring/${match.id}')),
+          if (user?.canManage(match.createdBy) == true || ownedIds.contains(match.id)) ...[
+            const SizedBox(width: 8),
+            _ActionBtn(label: 'End', color: AppColors.wicket,
+              onTap: () => onEndMatch(match.id)),
+          ],
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: Text(
+            '${match.team1?.name ?? '—'} vs ${match.team2?.name ?? '—'}',
+            style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15),
+          )),
+          Text(match.format, style: const TextStyle(color: AppColors.ball, fontSize: 13)),
+        ]),
+        if (inn != null && batting != null) ...[
+          const SizedBox(height: 8),
+          Text('${batting.name} batting',
+            style: const TextStyle(color: AppColors.text2, fontSize: 12)),
+          const SizedBox(height: 4),
+          Text(scoreFmt(inn.totalRuns, inn.totalWickets),
+            style: const TextStyle(
+              fontSize: 40, fontWeight: FontWeight.w800,
+              letterSpacing: -1.5, color: AppColors.text,
+            )),
+          Text('${ballsToOvers(inn.totalBalls)} ov · CRR ${inn.currentRunRate.toStringAsFixed(1)}',
+            style: const TextStyle(color: AppColors.text2, fontSize: 13)),
+        ],
+      ]),
     );
   }
 }
@@ -664,7 +684,7 @@ class _ActionBtn extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback onTap;
-  const _ActionBtn(this.label, this.color, this.onTap);
+  const _ActionBtn({required this.label, required this.color, required this.onTap});
 
   @override Widget build(BuildContext context) {
     return GestureDetector(
@@ -679,39 +699,6 @@ class _ActionBtn extends StatelessWidget {
         child: Text(label, style: TextStyle(
           color: color, fontSize: 13, fontWeight: FontWeight.w700,
         )),
-      ),
-    );
-  }
-}
-
-class _QuickAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickAction({
-    required this.icon, required this.label,
-    required this.color, required this.onTap,
-  });
-
-  @override Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Column(children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 8),
-          Text(label, style: TextStyle(
-            color: color, fontWeight: FontWeight.w700, fontSize: 13,
-          )),
-        ]),
       ),
     );
   }
@@ -739,7 +726,10 @@ class _TournamentsTab extends StatelessWidget {
               label: const Text('Manage tournaments'),
             ),
           ),
-        ...tours.map((t) => AppCard(
+        const SizedBox(height: 8),
+        ...tours.map((t) => _StripCard(
+          stripColor: t.isActive ? AppColors.accent : t.isCompleted ? AppColors.text3 : AppColors.ball,
+          stripLabel: t.isActive ? 'ACTIVE' : t.isCompleted ? 'DONE' : 'SOON',
           onTap: () => context.push('/tournament/${t.id}').then((_) => onRefresh()),
           child: Row(children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -749,10 +739,7 @@ class _TournamentsTab extends StatelessWidget {
               Text('${t.format} · ${t.teamCount}/${t.maxTeams} teams',
                 style: const TextStyle(color: AppColors.text2, fontSize: 13)),
             ])),
-            StatusBadge(
-              label: t.isActive ? 'Active' : t.isCompleted ? 'Done' : 'Upcoming',
-              color: t.isActive ? AppColors.accent : t.isCompleted ? AppColors.text2 : AppColors.ball,
-            ),
+            const Icon(Icons.chevron_right, color: AppColors.text3, size: 20),
           ]),
         )),
         if (tours.isEmpty)
@@ -783,7 +770,9 @@ class _TeamsTab extends StatelessWidget {
   @override Widget build(BuildContext context) {
     return ListView(children: [
       const SectionHeader(title: 'Teams by tournament'),
-      ...tours.map((t) => AppCard(
+      ...tours.map((t) => _StripCard(
+        stripColor: AppColors.accent,
+        stripLabel: 'TEAM',
         onTap: () => context.push('/tournament/${t.id}').then((_) => onRefresh()),
         child: Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -793,7 +782,7 @@ class _TeamsTab extends StatelessWidget {
             Text('${t.teamCount} teams registered',
               style: const TextStyle(color: AppColors.text2, fontSize: 13)),
           ])),
-          const Text('Manage →', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w600)),
+          const Icon(Icons.chevron_right, color: AppColors.text3, size: 20),
         ]),
       )),
       if (tours.isEmpty)
@@ -815,7 +804,6 @@ class _TeamsTab extends StatelessWidget {
 }
 
 // ── Camera Tab ────────────────────────────────────────────────
-// Phone 2 goes here: tap Camera in bottom nav → enter match ID → start buffering.
 class _CameraTab extends StatelessWidget {
   const _CameraTab();
   @override
