@@ -468,7 +468,7 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
           style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
             side: const BorderSide(color: AppColors.border),
             minimumSize: const Size(double.infinity, 52),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
           child: const Text('Cancel'),
         )),
       ]),

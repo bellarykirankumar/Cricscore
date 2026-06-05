@@ -305,7 +305,7 @@ class _FixtureTossSheetState extends State<_FixtureTossSheet> {
                           onPressed: _starting ? null : _startMatch,
                           style: ElevatedButton.styleFrom(
                             minimumSize: const Size(double.infinity, 52),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           child: _starting
                               ? const SizedBox(
@@ -325,7 +325,7 @@ class _FixtureTossSheetState extends State<_FixtureTossSheet> {
                             foregroundColor: AppColors.text2,
                             side: const BorderSide(color: AppColors.border),
                             minimumSize: const Size(double.infinity, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
                           child: const Text('Cancel'),
                         ),

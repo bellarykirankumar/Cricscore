@@ -414,7 +414,7 @@ class _Step0Basics extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           gradient: LinearGradient(colors: [AppColors.accent.withOpacity(0.1), AppColors.bgCard]),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppColors.accent.withOpacity(0.3)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -501,7 +501,7 @@ class _Step0Basics extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             color: state.format == f ? AppColors.accent.withOpacity(0.15) : AppColors.bgElevated,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(color: state.format == f ? AppColors.accent : AppColors.border,
               width: state.format == f ? 1.5 : 1),
           ),
@@ -768,7 +768,7 @@ class _Step2TeamsState extends State<_Step2Teams> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: AppColors.accent.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppColors.accent.withOpacity(0.3)),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -846,7 +846,7 @@ class _Step3Fixtures extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.bgCard, borderRadius: BorderRadius.circular(20),
+              color: AppColors.bgCard, borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppColors.border)),
             child: const Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(Icons.refresh, size: 14, color: AppColors.text2),
@@ -934,7 +934,7 @@ class _Step4Launch extends StatelessWidget {
           children: state.teamNames.where((n) => n.isNotEmpty).map((n) => Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.bgCard, borderRadius: BorderRadius.circular(20),
+              color: AppColors.bgCard, borderRadius: BorderRadius.circular(6),
               border: Border.all(color: AppColors.border)),
             child: Text(n, style: const TextStyle(color: AppColors.text, fontSize: 13)),
           )).toList()),

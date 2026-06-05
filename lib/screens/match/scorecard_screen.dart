@@ -394,7 +394,7 @@ class _PhasesTab extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppColors.bgCard, borderRadius: BorderRadius.circular(16),
+          color: AppColors.bgCard, borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppColors.border)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
