@@ -1103,7 +1103,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                     decoration: BoxDecoration(
                       color: _isListening ? AppColors.accent.withOpacity(0.15) : AppColors.bgElevated,
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: _isListening ? AppColors.accent : AppColors.border,
                         width: _isListening ? 1.5 : 1,
@@ -1136,7 +1136,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                     decoration: BoxDecoration(
                       color: AppColors.bgElevated,
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppColors.border),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1172,7 +1172,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                   return GestureDetector(
                     onTap: _saving ? null : () => _handleBall(btn.runs, btn.type),
                     child: Container(
-                      decoration: BoxDecoration(color: btn.bg, borderRadius: BorderRadius.circular(14),
+                      decoration: BoxDecoration(color: btn.bg, borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: btn.fg.withOpacity(0.3))),
                       child: Center(
                         child: Text(btn.label, style: TextStyle(fontSize: btn.label == 'W' ? 24 : 28,
@@ -1298,7 +1298,7 @@ class _DismissalSheetState extends State<_DismissalSheet> {
             style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
               side: const BorderSide(color: AppColors.border),
               minimumSize: const Size(double.infinity, 44),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
             child: Text(_selectedType != null ? '← Back' : 'Cancel'),
           ),
         ),
@@ -1361,7 +1361,7 @@ class _PlayerPickerSheet extends StatelessWidget {
             style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
               side: const BorderSide(color: AppColors.border),
               minimumSize: const Size(double.infinity, 44),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
             child: const Text('Cancel'),
           ),
         ),
@@ -1389,7 +1389,7 @@ class _InningsBreakSheet extends StatelessWidget {
         const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: AppColors.bgElevated, borderRadius: BorderRadius.circular(16),
+          decoration: BoxDecoration(color: AppColors.bgElevated, borderRadius: BorderRadius.circular(10),
             border: Border.all(color: AppColors.border)),
           child: Column(children: [
             Text(battingTeamName, style: const TextStyle(color: AppColors.text2, fontSize: 13)),
@@ -1402,7 +1402,7 @@ class _InningsBreakSheet extends StatelessWidget {
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(16),
+          decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(10),
             border: Border.all(color: AppColors.accent.withOpacity(0.3))),
           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             const Text('🎯 ', style: TextStyle(fontSize: 20)),
@@ -1471,7 +1471,7 @@ class _MatchResultScreen extends StatelessWidget {
               onPressed: () => context.go('/?t=${DateTime.now().millisecondsSinceEpoch}'),
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
                 side: const BorderSide(color: AppColors.border),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
               child: const Text('Back to home'))),
         ])),
       ])),
@@ -1493,7 +1493,7 @@ class _InningsSummaryCard extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(16),
+      decoration: BoxDecoration(color: AppColors.bgCard, borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [

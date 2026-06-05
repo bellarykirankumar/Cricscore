@@ -118,7 +118,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen>
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: AppColors.accentFaint,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: AppColors.accent.withOpacity(0.4))),
               child: Text(p.playerCode!,
                 style: const TextStyle(
@@ -137,7 +137,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen>
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: const Color(0x157C3AED),
-              borderRadius: BorderRadius.circular(20)),
+              borderRadius: BorderRadius.circular(6)),
             child: const Text('✓ Claimed profile',
               style: TextStyle(color: Color(0xFF7C3AED), fontSize: 12, fontWeight: FontWeight.w600)),
           ),
@@ -171,7 +171,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen>
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppColors.bgCard,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(color: AppColors.accent.withOpacity(0.3))),
           child: Column(children: [
             const Text('Is this you?',
@@ -243,7 +243,7 @@ class _PlayerProfileScreenState extends ConsumerState<PlayerProfileScreen>
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
           color: AppColors.bgCard,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppColors.border)),
         child: Row(children: [
           _StatChip('Matches', '$matches'),
@@ -289,7 +289,7 @@ class _DetailSection extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.bgCard,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(

@@ -817,7 +817,7 @@ class _TossModal extends StatelessWidget {
               ElevatedButton(
                 onPressed: starting ? null : onStart,
                 style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 52),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                 child: starting
                   ? const SizedBox(width: 22, height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.textOnAcc))
@@ -829,7 +829,7 @@ class _TossModal extends StatelessWidget {
                 style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
                   side: const BorderSide(color: AppColors.border),
                   minimumSize: const Size(double.infinity, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                 child: const Text('Cancel'),
               ),
             ])),
