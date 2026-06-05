@@ -1,0 +1,135 @@
+name: Deploy to TestFlight
+
+# Trigger manually from GitHub UI (Actions tab → Run workflow)
+# Works from phone, browser, anywhere — no Mac needed.
+on:
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    name: Build & Upload to TestFlight
+    runs-on: macos-latest
+
+    steps:
+      # ── 1. Source ───────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Flutter ──────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # ── 3. Code signing ─────────────────────────────────────────
+      - name: Import distribution certificate
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+
+          # Create a short-lived keychain for this job
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$IOS_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Install provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          PP_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          echo "$IOS_PROVISIONING_PROFILE" | base64 --decode > "$PP_PATH"
+
+          # Extract UUID from the signed profile and name the file by it
+          # (Xcode looks for profiles by UUID filename)
+          DECODED="$RUNNER_TEMP/decoded.plist"
+          security cms -D -i "$PP_PATH" > "$DECODED"
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$DECODED")
+          rm "$DECODED"
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID.mobileprovision"
+          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
+
+      # ── 4. Export options ───────────────────────────────────────
+      - name: Create ExportOptions.plist
+        run: |
+          cat > /tmp/ExportOptions.plist << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>N9P5D4TR73</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.bellark.cricscore</key>
+              <string>$PROFILE_UUID</string>
+            </dict>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+      # ── 5. Build ────────────────────────────────────────────────
+      # Build number: current (21) + GitHub run number, guarantees it
+      # always increases with every run even if pubspec isn't bumped.
+      - name: Build IPA
+        run: |
+          BUILD_NUMBER=$((21 + $GITHUB_RUN_NUMBER))
+          echo "Building version 1.0.4+$BUILD_NUMBER"
+          flutter build ipa \
+            --dart-define=ENV=prod \
+            --build-number=$BUILD_NUMBER \
+            --export-options-plist=/tmp/ExportOptions.plist
+
+      # ── 6. Upload ───────────────────────────────────────────────
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          KEY_DIR=~/.appstoreconnect/private_keys
+          mkdir -p "$KEY_DIR"
+          echo "$ASC_KEY_P8" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+
+          IPA=$(ls build/ios/ipa/*.ipa)
+          echo "Uploading: $IPA"
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey  "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID" \
+            --verbose
+
+      # ── 7. Clean up ─────────────────────────────────────────────
+      - name: Clean up secrets
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          rm -f "$RUNNER_TEMP/profile.mobileprovision"
+          rm -f ~/.appstoreconnect/private_keys/*.p8
