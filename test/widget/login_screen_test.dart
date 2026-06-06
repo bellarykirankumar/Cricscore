@@ -7,7 +7,7 @@ import 'package:cricscore/theme/app_theme.dart';
 // Wrap the screen in a minimal shell — no GoRouter, no Firebase.
 Widget _shell() => ProviderScope(
       child: MaterialApp(
-        theme: AppTheme.dark,
+        theme: AppTheme.dark, // AppTheme.dark is now the light theme
         home: const LoginScreen(),
       ),
     );

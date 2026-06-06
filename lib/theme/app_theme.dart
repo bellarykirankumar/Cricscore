@@ -1,50 +1,50 @@
 import 'package:flutter/material.dart';
 
 // ─────────────────────────────────────────────────────────────
-//  CricScore Design System — Stadium Nights
+//  CricScore Design System — Light / Outdoor-Readable
 // ─────────────────────────────────────────────────────────────
 
 class AppColors {
-  // Backgrounds — deep navy layers
-  static const bg           = Color(0xFF050A14);
-  static const bgCard       = Color(0xFF0C1525);
-  static const bgElevated   = Color(0xFF152033);
+  // Backgrounds — clean white layers
+  static const bg           = Color(0xFFFFFFFF);
+  static const bgCard       = Color(0xFFF8FAFF);
+  static const bgElevated   = Color(0xFFF1F5FF);
 
-  // Accent — saffron orange (stadium lights / India cricket)
-  static const accent       = Color(0xFFFF6B00);
-  static const accentFaint  = Color(0x20FF6B00);
+  // Accent — royal blue
+  static const accent       = Color(0xFF2563EB);
+  static const accentFaint  = Color(0x202563EB);
 
-  // Ball — cricket leather red
-  static const ball         = Color(0xFFDC2626);
-  static const ballFaint    = Color(0x20DC2626);
+  // Ball — amber
+  static const ball         = Color(0xFFF59E0B);
+  static const ballFaint    = Color(0x20F59E0B);
 
   // Events
-  static const wicket       = Color(0xFFEF4444);
-  static const wicketFaint  = Color(0x20EF4444);
-  static const four         = Color(0xFF38BDF8);  // sky blue
-  static const six          = Color(0xFFFBBF24);  // stadium gold
+  static const wicket       = Color(0xFFDC2626);
+  static const wicketFaint  = Color(0x20DC2626);
+  static const four         = Color(0xFF2563EB);  // blue
+  static const six          = Color(0xFFF59E0B);  // amber
 
   // Text
-  static const text         = Color(0xFFEEF2FF);
-  static const text2        = Color(0xFF7A96C0);
-  static const text3        = Color(0xFF3D5070);
+  static const text         = Color(0xFF0F172A);
+  static const text2        = Color(0xFF475569);
+  static const text3        = Color(0xFF94A3B8);
   static const textOnAcc    = Color(0xFFFFFFFF);
 
   // Borders
-  static const border       = Color(0xFF1A2E4A);
-  static const borderDim    = Color(0xFF0E1C2E);
+  static const border       = Color(0xFFE2E8F0);
+  static const borderDim    = Color(0xFFF1F5F9);
 
   // Card gradient stops
-  static const cardGradTop  = Color(0xFF152033);
-  static const cardGradBot  = Color(0xFF0C1525);
+  static const cardGradTop  = Color(0xFFF8FAFF);
+  static const cardGradBot  = Color(0xFFF1F5FF);
 }
 
 class AppTheme {
   static ThemeData get dark => ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: Brightness.light,
     scaffoldBackgroundColor: AppColors.bg,
-    colorScheme: const ColorScheme.dark(
+    colorScheme: const ColorScheme.light(
       primary: AppColors.accent,
       secondary: AppColors.ball,
       surface: AppColors.bgCard,
@@ -52,11 +52,13 @@ class AppTheme {
     ),
     fontFamily: 'Inter',
     appBarTheme: const AppBarTheme(
-      backgroundColor: AppColors.bgCard,
+      backgroundColor: AppColors.bg,
       foregroundColor: AppColors.text,
       elevation: 0,
+      scrolledUnderElevation: 0.5,
       centerTitle: true,
       surfaceTintColor: Colors.transparent,
+      shadowColor: AppColors.border,
       titleTextStyle: TextStyle(
         fontSize: 17, fontWeight: FontWeight.w800,
         color: AppColors.text, fontFamily: 'Inter',
