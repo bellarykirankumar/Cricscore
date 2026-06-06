@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -364,6 +365,12 @@ class AiApi {
     final names = (data as Map<String, dynamic>?)?['names'] as List?;
     return names?.map((n) => n.toString()).toList() ?? [];
   }
+
+  /// Check a feedback/suggestion against existing features and past suggestions.
+  static Future<Map<String, dynamic>> checkFeedback(String text) async {
+    final data = await _api._request('POST', '/ai/check-feedback', body: {'text': text});
+    return (data as Map<String, dynamic>?) ?? {};
+  }
 }
 
 class PlayerApi {
@@ -482,4 +489,61 @@ class ClipApi {
     }) as List;
     return data.map((j) => MatchClip.fromJson(j as Map<String, dynamic>)).toList();
   }
+}
+
+// ── Feedback Api ──────────────────────────────────────────────
+class FeedbackApi {
+  static final _api = ApiService.instance;
+
+  /// AI check: does this suggestion already exist as a feature or past suggestion?
+  static Future<_FeedbackAiResult> checkSuggestion(String text) async {
+    final data = await _api._request('POST', '/ai/check-feedback',
+        body: {'text': text}) as Map<String, dynamic>;
+    return _FeedbackAiResult.fromJson(data);
+  }
+
+  /// Submit feedback with optional screenshot (uploaded via presigned S3 URL).
+  static Future<void> submit({
+    required String text,
+    File? screenshot,
+    String? aiCategory,
+  }) async {
+    String? screenshotUrl;
+
+    if (screenshot != null) {
+      // 1. Get presigned upload URL
+      final presigned = await _api._request('POST', '/feedback/upload-url',
+          body: {'contentType': 'image/jpeg'}) as Map<String, dynamic>;
+      final uploadUrl = presigned['uploadUrl'] as String;
+      screenshotUrl   = presigned['publicUrl'] as String?;
+
+      // 2. Upload directly to S3
+      await http.put(
+        Uri.parse(uploadUrl),
+        headers: {'Content-Type': 'image/jpeg'},
+        body: await screenshot.readAsBytes(),
+      );
+    }
+
+    await _api._request('POST', '/feedback', body: {
+      'text': text,
+      if (aiCategory != null) 'aiCategory': aiCategory,
+      if (screenshotUrl != null) 'screenshotUrl': screenshotUrl,
+      'submittedAt': DateTime.now().toIso8601String(),
+    });
+  }
+}
+
+class _FeedbackAiResult {
+  final String type;    // 'exists' | 'duplicate' | 'new'
+  final String message;
+  final String? howTo;
+
+  const _FeedbackAiResult({required this.type, required this.message, this.howTo});
+
+  factory _FeedbackAiResult.fromJson(Map<String, dynamic> j) => _FeedbackAiResult(
+    type:    j['type']    as String? ?? 'new',
+    message: j['message'] as String? ?? '',
+    howTo:   j['howTo']   as String?,
+  );
 }
