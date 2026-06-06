@@ -99,9 +99,6 @@ jobs:
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
       # ── 6. Build ────────────────────────────────────────────────
-      # flutter build ios --no-codesign handles Flutter-specific setup.
-      # xcodebuild then archives + exports with signing flags passed as
-      # command-line args (highest Xcode precedence — overrides everything).
       - name: Build IPA
         run: |
           BUILD_NUMBER=$((21 + $GITHUB_RUN_NUMBER))
@@ -112,18 +109,37 @@ jobs:
             --dart-define=ENV=prod \
             --build-number=$BUILD_NUMBER
 
-          # Step B: Archive with signing passed as xcodebuild CLI args (top precedence)
+          # Step B: Inject signing settings directly into Runner's Release config block
+          # in project.pbxproj (block ID: 97C147071CF9000F007C117D). This targets only
+          # the Runner target — Pods has a separate Pods.xcodeproj and is unaffected.
+          # Passing PROVISIONING_PROFILE_SPECIFIER as a global CLI arg broke Pods targets;
+          # this per-target approach avoids that.
+          PBXPROJ="ios/Runner.xcodeproj/project.pbxproj"
+          awk -v prof="$PROFILE_UUID" '
+            /97C147071CF9000F007C117D.*Release/ { in_block=1 }
+            in_block && /buildSettings = \{/ {
+              print
+              print "\t\t\t\tCODE_SIGN_STYLE = Manual;"
+              print "\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = \"" prof "\";"
+              in_block=0
+              next
+            }
+            { print }
+          ' "$PBXPROJ" > "${PBXPROJ}.patched"
+          mv "${PBXPROJ}.patched" "$PBXPROJ"
+          echo "Patched project.pbxproj with PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID"
+
+          # Step C: Archive — CODE_SIGN_IDENTITY safe as global arg (doesn't break Pods)
           xcodebuild archive \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -sdk iphoneos \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
-            CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM=N9P5D4TR73
 
-          # Step C: Export signed IPA
+          # Step D: Export signed IPA
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
             -exportPath build/ios/ipa \
