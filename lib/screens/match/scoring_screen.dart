@@ -28,6 +28,10 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   bool       _pendingBowlerChange = false;
   int        _rawBallCount = 0;
 
+  // Wicket context — set before showing new_batsman picker
+  bool       _wicketOverComplete    = false; // was wicket on last ball of over?
+  bool?      _runOutStrikerDismissed; // true=striker out, false=non-striker out, null=not a run out
+
   // Voice scoring
   final SpeechToText _speech = SpeechToText();
   bool   _speechAvailable = false;
@@ -224,19 +228,36 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     final inn = _innings;
     if (inn == null) return;
     HapticFeedback.selectionClick();
-    if (_pickerMode == 'striker' || _pickerMode == 'new_batsman') {
-      setState(() => _innings = Innings.copyWith(inn, currentStrikerId: player.id));
-      if (_pickerMode == 'striker' && inn.currentNonStrikerId == null) {
-        setState(() => _pickerMode = 'non_striker'); return;
-      }
-      if (_pickerMode == 'striker' && inn.currentBowlerId == null) {
-        setState(() => _pickerMode = 'bowler'); return;
-      }
-      if (_pickerMode == 'new_batsman' && _pendingBowlerChange) {
-        setState(() { _pendingBowlerChange = false; _pickerMode = null; });
-        Future.delayed(const Duration(milliseconds: 300), () => setState(() => _pickerMode = 'new_bowler'));
+    if (_pickerMode == 'new_batsman') {
+      // Placement depends on wicket context set before showing picker:
+      //   - Normal wicket mid-over:    new batsman = striker (faces next ball)
+      //   - Normal wicket end-of-over: new batsman = non-striker
+      //   - Run out (resolved):        placement decided by _runOutStrikerDismissed + over context
+      final newInn = (inn.currentStrikerId == null)
+          ? Innings.copyWith(inn, currentStrikerId: player.id)    // striker slot empty
+          : Innings.copyWith(inn, currentNonStrikerId: player.id); // non-striker slot empty
+      setState(() => _innings = newInn);
+
+      if (_runOutStrikerDismissed != null) {
+        // Run out: after picking new batsman, ask who's on strike
+        Future.delayed(const Duration(milliseconds: 200),
+            () { if (mounted) setState(() => _pickerMode = 'new_batsman_end'); });
         return;
       }
+      if (_pendingBowlerChange) {
+        setState(() { _pendingBowlerChange = false; _pickerMode = null; });
+        Future.delayed(const Duration(milliseconds: 300),
+            () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
+        return;
+      }
+    } else if (_pickerMode == 'run_out_who') {
+      // This mode is handled by a custom widget — not a player picker
+      // (see _RunOutWhoWidget below); this branch won't be reached
+      return;
+    } else if (_pickerMode == 'striker') {
+      setState(() => _innings = Innings.copyWith(inn, currentStrikerId: player.id));
+      if (inn.currentNonStrikerId == null) { setState(() => _pickerMode = 'non_striker'); return; }
+      if (inn.currentBowlerId == null)     { setState(() => _pickerMode = 'bowler'); return; }
     } else if (_pickerMode == 'non_striker') {
       setState(() => _innings = Innings.copyWith(inn, currentNonStrikerId: player.id));
       if (inn.currentBowlerId == null) { setState(() => _pickerMode = 'bowler'); return; }
@@ -359,309 +380,226 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   }
 
 
+  // ── Local-first delivery submission ───────────────────────────
+  // All state transitions (rotation, over-end, wicket) are computed
+  // locally before the API call. The server response is used only to
+  // update stats/totals — never to drive currentStrikerId/NonStrikerId.
   Future<void> _submitDeliveryWithExtra(int runs, bool isWicket, String? extraType, [String? dismissalType, String? fielderId]) async {
     final match = _match;
     final inn = _innings;
     if (match == null || inn == null) return;
     if (inn.currentStrikerId == null || inn.currentNonStrikerId == null || inn.currentBowlerId == null) return;
 
-    setState(() { _saving = true; _showDismissal = false; });
+    setState(() { _saving = true; _showDismissal = false; _extra = null; });
     HapticFeedback.lightImpact();
 
-    final extra = extraType;
-    final isLegal = extra != 'wide' && extra != 'no_ball';
-    final runsBat = (extra == 'wide' || extra == 'leg_bye' || extra == 'bye') ? 0 : runs;
-    final runsExt = extra == 'no_ball' ? (1 + runs) : extra == 'wide' ? (1 + runs)
-      : extra == 'bye' || extra == 'leg_bye' ? runs : 0;
+    final extra     = extraType;
+    final isLegal   = extra != 'wide' && extra != 'no_ball';
+    final runsBat   = (extra == 'wide' || extra == 'leg_bye' || extra == 'bye') ? 0 : runs;
+    final runsExt   = extra == 'no_ball' ? (1 + runs) : extra == 'wide' ? (1 + runs)
+                      : (extra == 'bye' || extra == 'leg_bye') ? runs : 0;
     final runsTotal = extra == 'no_ball' ? (1 + runs) : extra == 'wide' ? (1 + runs) : runs;
 
-    try {
-      final result = await MatchApi.recordDelivery(widget.matchId, inn.inningsNumber, {
-        'batsmanId':       inn.currentStrikerId,
-        'nonStrikerId':    inn.currentNonStrikerId,
-        'bowlerId':        inn.currentBowlerId,
-        'runsBatsman':     runsBat,
-        'runsExtras':      runsExt,
-        'runsTotal':       runsTotal,
-        if (extra != null) 'extraType': extra,
-        'isWicket':        isWicket,
-        'isLegalDelivery': isLegal,
-        'rawBallNumber':   _rawBallCount,
-        if (isWicket && dismissalType != null) 'dismissal': {
-          'type': dismissalType, 'batsmanId': inn.currentStrikerId, 'bowlerId': inn.currentBowlerId,
-          if (fielderId != null) 'fielderId': fielderId,
-        },
-      });
+    // ── Snapshot names/positions BEFORE any state change ──────────
+    final strikerName = _getName(inn.currentStrikerId);
+    final bowlerName  = _getName(inn.currentBowlerId);
+    final overNum     = inn.totalBalls ~/ 6;
+    final ballNum     = (inn.totalBalls % 6) + 1;
 
-      _rawBallCount++;
-      final rawInn = Innings.fromJson(result['innings'] as Map<String, dynamic>? ?? {});
-      final updInn = Innings.copyWith(rawInn,
-        currentStrikerId: rawInn.currentStrikerId ?? inn.currentStrikerId,
-        currentNonStrikerId: rawInn.currentNonStrikerId ?? inn.currentNonStrikerId,
-        currentBowlerId: rawInn.currentBowlerId ?? inn.currentBowlerId,
-      );
+    // ── 1. Compute next state LOCALLY — server never drives UI ────
+    // Build new delivery record
+    final newDelivery = Delivery(
+      overNumber:      overNum,
+      ballNumber:      inn.totalBalls % 6,
+      batsmanId:       inn.currentStrikerId ?? '',
+      nonStrikerId:    inn.currentNonStrikerId ?? '',
+      bowlerId:        inn.currentBowlerId ?? '',
+      runsBatsman:     runsBat,
+      runsExtras:      runsExt,
+      runsTotal:       runsTotal,
+      isWicket:        isWicket,
+      isLegalDelivery: isLegal,
+      extraType:       extra,
+    );
 
-      // Use API deliveries if returned, otherwise keep existing + build one locally
-      final apiDels = updInn.deliveries ?? [];
-      final existingDels = inn.deliveries ?? [];
-      final mergedDels = apiDels.isNotEmpty ? apiDels : [
-        ...existingDels,
-        Delivery(
-          overNumber: inn.totalBalls ~/ 6,
-          ballNumber: inn.totalBalls % 6,
-          batsmanId: inn.currentStrikerId ?? '',
-          nonStrikerId: inn.currentNonStrikerId ?? '',
-          bowlerId: inn.currentBowlerId ?? '',
-          runsBatsman: runsBat,
-          runsExtras: runsExt,
-          runsTotal: runsTotal,
-          isWicket: isWicket,
-          isLegalDelivery: isLegal,
-          extraType: extra,
-        ),
-      ];
-      if (isLegal && !isWicket && runsBat.isOdd) {
-        setState(() => _innings = Innings.copyWith(updInn,
-          currentStrikerId: updInn.currentNonStrikerId,
-          currentNonStrikerId: updInn.currentStrikerId,
-          deliveries: mergedDels,
-        ));
-      } else {
-        setState(() => _innings = Innings.copyWith(updInn,
-          deliveries: mergedDels,
-        ));
-      }
+    // Build updated totals locally
+    final newTotalBalls   = inn.totalBalls + (isLegal ? 1 : 0);
+    final newTotalRuns    = inn.totalRuns + runsTotal;
+    final newTotalWickets = inn.totalWickets + (isWicket ? 1 : 0);
+    final newDeliveries   = <Delivery>[...(inn.deliveries ?? []), newDelivery];
 
-      // ── AI Commentary (fire-and-forget) — must run before any early return ──
-      final strikerName = _getName(inn.currentStrikerId ?? '');
-      final bowlerName  = _getName(inn.currentBowlerId ?? '');
-      final overNum     = inn.totalBalls ~/ 6;
-      final ballNum     = (inn.totalBalls % 6) + 1;
-      // Add placeholder immediately so the row appears without waiting for AI
-      final placeholder = CommentaryEntry(
-        innings: inn.inningsNumber, over: overNum, ball: ballNum,
-        batsman: strikerName, bowler: bowlerName,
-        runs: runsTotal, extra: extra,
-        isWicket: isWicket, dismissal: dismissalType, text: '',
-      );
-      CommentaryStore.addOrUpdate(widget.matchId, placeholder);
-      if (mounted) setState(() {});
+    // Determine next striker/non-striker purely from local rules:
+    //   - Odd batsman runs → rotate
+    //   - Wicket → new batsman will be picked, keep non-striker
+    //   - End of over (after this legal ball) → swap (handled after setState)
+    String? nextStriker    = inn.currentStrikerId;
+    String? nextNonStriker = inn.currentNonStrikerId;
 
-      // ── Clip trigger (fire-and-forget) ──────────────────────────
-      // Sends a WebSocket event so the camera device starts recording.
-      final clipEvent = isWicket ? 'wicket' : runsBat == 6 ? 'six' : runsBat == 4 ? 'four' : null;
-      if (clipEvent != null) {
-        ClipWsService.instance.sendClipTrigger(
-          matchId:       widget.matchId,
-          inningsNumber: inn.inningsNumber,
-          over:          overNum,
-          ball:          ballNum - 1,
-          event:         clipEvent,
-        );
-      }
-
-      AiApi.generateCommentary({
-        'bowler':       bowlerName,
-        'batsman':      strikerName,
-        'runs':         runsTotal,
-        if (extra != null) 'extra': extra,
-        'isWicket':     isWicket,
-        if (isWicket && dismissalType != null) 'dismissal': dismissalType,
-        'over':         overNum,
-        'ball':         ballNum,
-        'teamRuns':     updInn.totalRuns,
-        'teamWickets':  updInn.totalWickets,
-        if (updInn.target != null) 'target': updInn.target,
-      }).then((text) {
-        if (text.isNotEmpty) {
-          CommentaryStore.addOrUpdate(widget.matchId, CommentaryEntry(
-            innings: inn.inningsNumber, over: overNum, ball: ballNum,
-            batsman: strikerName, bowler: bowlerName,
-            runs: runsTotal, extra: extra,
-            isWicket: isWicket, dismissal: dismissalType, text: text,
-          ));
-          if (mounted) setState(() {});
-        }
-      }).catchError((_) {});
-
-      // Innings / over end checks (after commentary so last ball is always captured)
-      if (isLegal) {
-        final nb = updInn.totalBalls;
-        if (nb >= match.oversPerInnings * 6) { await _handleInningsEnd(updInn); return; }
-        if (nb % 6 == 0) {
-          _swapEnds();
-          Future.delayed(const Duration(milliseconds: 300), () => setState(() => _pickerMode = 'new_bowler'));
-        }
-      }
-      if (updInn.target != null && updInn.totalRuns >= updInn.target!) {
-        await _handleInningsEnd(updInn);
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    if (!isWicket && isLegal && runsBat.isOdd) {
+      // Rotate on odd batsman runs
+      nextStriker    = inn.currentNonStrikerId;
+      nextNonStriker = inn.currentStrikerId;
     }
-  }
 
-  Future<void> _submitDelivery(int runs, bool isWicket, [String? dismissalType, String? fielderId]) async {
-    final match = _match;
-    final inn = _innings;
-    if (match == null || inn == null) return;
-    if (inn.currentStrikerId == null || inn.currentNonStrikerId == null || inn.currentBowlerId == null) return;
+    // Check if this legal ball completes the over
+    final overComplete = isLegal && (newTotalBalls % 6 == 0);
+    if (overComplete && !isWicket) {
+      // End-of-over swap (non-striker faces next over)
+      final tmp  = nextStriker;
+      nextStriker    = nextNonStriker;
+      nextNonStriker = tmp;
+    }
 
-    setState(() { _saving = true; _showDismissal = false; });
-    HapticFeedback.lightImpact();
+    // Apply local state immediately — UI responds without waiting for network
+    String? localStriker;
+    String? localNonStriker;
+    bool clearNS = false;
 
-    final extra = _extra;
-    final isLegal = extra != 'wide' && extra != 'no_ball';
-    final runsBat = (extra == 'wide' || extra == 'leg_bye' || extra == 'bye') ? 0 : runs;
-    final runsExt = extra == 'no_ball' ? (1 + runs) : extra == 'wide' ? (1 + runs)
-      : extra == 'bye' || extra == 'leg_bye' ? runs : 0;
-    final runsTotal = extra == 'no_ball' ? (1 + runs) : extra == 'wide' ? (1 + runs) : runs;
+    if (!isWicket) {
+      localStriker    = nextStriker;
+      localNonStriker = nextNonStriker;
+    } else if (dismissalType == 'run_out') {
+      // Run out: don't change anything yet — picker will resolve who's out
+      localStriker    = inn.currentStrikerId;
+      localNonStriker = inn.currentNonStrikerId;
+    } else if (overComplete) {
+      // Normal wicket, last ball: non-striker becomes striker next over,
+      // new batsman comes in at non-striker end
+      localStriker = inn.currentNonStrikerId;
+      clearNS      = true; // null until new batsman picked
+    } else {
+      // Normal wicket, mid-over: new batsman faces next ball at striker end
+      clearNS         = true; // null until new batsman picked
+      localNonStriker = inn.currentNonStrikerId;
+    }
 
+    final localInn = Innings.copyWith(inn,
+      totalRuns:          newTotalRuns,
+      totalBalls:         newTotalBalls,
+      totalWickets:       newTotalWickets,
+      currentStrikerId:   localStriker,
+      currentNonStrikerId: localNonStriker,
+      clearNonStriker:    clearNS,
+      deliveries:         newDeliveries,
+    );
+    setState(() { _innings = localInn; _rawBallCount++; });
+
+    // ── 2. Commentary placeholder (immediate) ─────────────────────
+    final placeholder = CommentaryEntry(
+      innings: inn.inningsNumber, over: overNum, ball: ballNum,
+      batsman: strikerName, bowler: bowlerName,
+      runs: runsTotal, extra: extra,
+      isWicket: isWicket, dismissal: dismissalType, text: '',
+    );
+    CommentaryStore.addOrUpdate(widget.matchId, placeholder);
+    if (mounted) setState(() {});
+
+    // ── 3. Clip trigger (fire-and-forget) ─────────────────────────
+    final clipEvent = isWicket ? 'wicket' : runsBat == 6 ? 'six' : runsBat == 4 ? 'four' : null;
+    if (clipEvent != null) {
+      ClipWsService.instance.sendClipTrigger(
+        matchId: widget.matchId, inningsNumber: inn.inningsNumber,
+        over: overNum, ball: ballNum - 1, event: clipEvent,
+      );
+    }
+
+    // ── 4. AI Commentary (fire-and-forget, never blocks next ball) ─
+    AiApi.generateCommentary({
+      'bowler': bowlerName, 'batsman': strikerName,
+      'runs': runsTotal,
+      if (extra != null) 'extra': extra,
+      'isWicket': isWicket,
+      if (isWicket && dismissalType != null) 'dismissal': dismissalType,
+      'over': overNum, 'ball': ballNum,
+      'teamRuns': newTotalRuns, 'teamWickets': newTotalWickets,
+      if (localInn.target != null) 'target': localInn.target,
+    }).then((text) {
+      if (text.isNotEmpty && mounted) {
+        CommentaryStore.addOrUpdate(widget.matchId, CommentaryEntry(
+          innings: inn.inningsNumber, over: overNum, ball: ballNum,
+          batsman: strikerName, bowler: bowlerName,
+          runs: runsTotal, extra: extra,
+          isWicket: isWicket, dismissal: dismissalType, text: text,
+        ));
+        setState(() {});
+      }
+    }).catchError((_) {});
+
+    // ── 5. Send to backend async (best-effort, never blocks UI) ───
+    MatchApi.recordDelivery(widget.matchId, inn.inningsNumber, {
+      'batsmanId':       inn.currentStrikerId,
+      'nonStrikerId':    inn.currentNonStrikerId,
+      'bowlerId':        inn.currentBowlerId,
+      'runsBatsman':     runsBat,
+      'runsExtras':      runsExt,
+      'runsTotal':       runsTotal,
+      if (extra != null) 'extraType': extra,
+      'isWicket':        isWicket,
+      'isLegalDelivery': isLegal,
+      'rawBallNumber':   _rawBallCount - 1,
+      if (isWicket && dismissalType != null) 'dismissal': {
+        'type': dismissalType, 'batsmanId': inn.currentStrikerId,
+        'bowlerId': inn.currentBowlerId,
+        if (fielderId != null) 'fielderId': fielderId,
+      },
+    }).catchError((e) {
+      // Log silently — local state is already correct
+      debugPrint('Delivery sync failed: $e');
+    });
+
+    // ── 6. Post-ball UI transitions ────────────────────────────────
     try {
-      final result = await MatchApi.recordDelivery(widget.matchId, inn.inningsNumber, {
-        'batsmanId':       inn.currentStrikerId,
-        'nonStrikerId':    inn.currentNonStrikerId,
-        'bowlerId':        inn.currentBowlerId,
-        'runsBatsman':     runsBat,
-        'runsExtras':      runsExt,
-        'runsTotal':       runsTotal,
-        if (extra != null) 'extraType': extra,
-        'isWicket':        isWicket,
-        'isLegalDelivery': isLegal,
-        'rawBallNumber':   _rawBallCount,
-        if (isWicket && dismissalType != null) 'dismissal': {
-          'type': dismissalType, 'batsmanId': inn.currentStrikerId, 'bowlerId': inn.currentBowlerId,
-          if (fielderId != null) 'fielderId': fielderId,
-        },
-      });
-
-      _rawBallCount++;
-      final rawInn = Innings.fromJson(result['innings'] as Map<String, dynamic>? ?? {});
-      // Preserve current player IDs if API returns null
-      final updInn = Innings.copyWith(rawInn,
-        currentStrikerId: rawInn.currentStrikerId ?? inn.currentStrikerId,
-        currentNonStrikerId: rawInn.currentNonStrikerId ?? inn.currentNonStrikerId,
-        currentBowlerId: rawInn.currentBowlerId ?? inn.currentBowlerId,
-      );
-
-      // Use API deliveries if returned, otherwise keep existing + build one locally
-      final apiDels = updInn.deliveries ?? [];
-      final existingDels = inn.deliveries ?? [];
-      final mergedDels = apiDels.isNotEmpty ? apiDels : [
-        ...existingDels,
-        Delivery(
-          overNumber: inn.totalBalls ~/ 6,
-          ballNumber: inn.totalBalls % 6,
-          batsmanId: inn.currentStrikerId ?? '',
-          nonStrikerId: inn.currentNonStrikerId ?? '',
-          bowlerId: inn.currentBowlerId ?? '',
-          runsBatsman: runsBat,
-          runsExtras: runsExt,
-          runsTotal: runsTotal,
-          isWicket: isWicket,
-          isLegalDelivery: isLegal,
-          extraType: extra,
-        ),
-      ];
-      if (isLegal && !isWicket && runsBat.isOdd) {
-        setState(() => _innings = Innings.copyWith(updInn,
-          currentStrikerId: updInn.currentNonStrikerId,
-          currentNonStrikerId: updInn.currentStrikerId,
-          deliveries: mergedDels,
-        ));
-      } else {
-        setState(() => _innings = Innings.copyWith(updInn,
-          deliveries: mergedDels,
-        ));
-      }
-      setState(() => _extra = null);
-
-      // ── AI Commentary — before any early return so last ball is captured ──
-      final strikerName2 = _getName(inn.currentStrikerId ?? '');
-      final bowlerName2  = _getName(inn.currentBowlerId ?? '');
-      final overNum2     = inn.totalBalls ~/ 6;
-      final ballNum2     = (inn.totalBalls % 6) + 1;
-      final placeholder2 = CommentaryEntry(
-        innings: inn.inningsNumber, over: overNum2, ball: ballNum2,
-        batsman: strikerName2, bowler: bowlerName2,
-        runs: runsTotal, extra: extra,
-        isWicket: isWicket, dismissal: dismissalType, text: '',
-      );
-      CommentaryStore.addOrUpdate(widget.matchId, placeholder2);
-      if (mounted) setState(() {});
-
-      // ── Clip trigger (fire-and-forget) ──────────────────────────
-      final clipEvent2 = isWicket ? 'wicket' : runsBat == 6 ? 'six' : runsBat == 4 ? 'four' : null;
-      if (clipEvent2 != null) {
-        ClipWsService.instance.sendClipTrigger(
-          matchId:       widget.matchId,
-          inningsNumber: inn.inningsNumber,
-          over:          overNum2,
-          ball:          ballNum2 - 1,
-          event:         clipEvent2,
-        );
-      }
-
-      AiApi.generateCommentary({
-        'bowler':      bowlerName2,
-        'batsman':     strikerName2,
-        'runs':        runsTotal,
-        if (extra != null) 'extra': extra,
-        'isWicket':    isWicket,
-        if (isWicket && dismissalType != null) 'dismissal': dismissalType,
-        'over':        overNum2,
-        'ball':        ballNum2,
-        'teamRuns':    updInn.totalRuns,
-        'teamWickets': updInn.totalWickets,
-        if (updInn.target != null) 'target': updInn.target,
-      }).then((text) {
-        if (text.isNotEmpty) {
-          CommentaryStore.addOrUpdate(widget.matchId, CommentaryEntry(
-            innings: inn.inningsNumber, over: overNum2, ball: ballNum2,
-            batsman: strikerName2, bowler: bowlerName2,
-            runs: runsTotal, extra: extra,
-            isWicket: isWicket, dismissal: dismissalType, text: text,
-          ));
-          if (mounted) setState(() {});
-        }
-      }).catchError((_) {});
-
-      // Innings / over end checks (after commentary)
       if (isWicket) {
-        if (updInn.totalWickets >= 10) { await _handleInningsEnd(updInn); return; }
-        final nb = updInn.totalBalls;
-        final isInningsOver = isLegal && nb >= match.oversPerInnings * 6;
-        if (isInningsOver) { await _handleInningsEnd(updInn); return; }
-        final overDone = isLegal && nb % 6 == 0;
-        if (overDone) {
-          _swapEnds();
-          setState(() { _pendingBowlerChange = true; _pickerMode = 'new_batsman'; });
+        if (newTotalWickets >= 10) { await _handleInningsEnd(localInn); return; }
+        if (isLegal && newTotalBalls >= match.oversPerInnings * 6) {
+          await _handleInningsEnd(localInn); return;
+        }
+        // Store wicket context for the picker to use
+        _wicketOverComplete = overComplete;
+        _runOutStrikerDismissed = null;
+
+        if (dismissalType == 'run_out') {
+          // Ask user which batsman was run out
+          Future.delayed(const Duration(milliseconds: 300),
+              () { if (mounted) setState(() => _pickerMode = 'run_out_who'); });
         } else {
-          Future.delayed(const Duration(milliseconds: 300), () => setState(() => _pickerMode = 'new_batsman'));
+          // Normal dismissal — striker is always out
+          if (overComplete) {
+            // Last ball: non-striker becomes striker, new batsman is non-striker
+            // localInn already has currentStriker=old non-striker, currentNonStriker=null
+            setState(() { _pendingBowlerChange = true; _pickerMode = 'new_batsman'; });
+          } else {
+            // Mid-over: new batsman faces next ball (striker end)
+            // localInn has currentStriker=null, currentNonStriker=old non-striker
+            Future.delayed(const Duration(milliseconds: 300),
+                () { if (mounted) setState(() => _pickerMode = 'new_batsman'); });
+          }
         }
         return;
       }
 
       if (isLegal) {
-        final nb = updInn.totalBalls;
-        if (nb >= match.oversPerInnings * 6) { await _handleInningsEnd(updInn); return; }
-        if (nb % 6 == 0) {
-          _swapEnds();
-          Future.delayed(const Duration(milliseconds: 300), () => setState(() => _pickerMode = 'new_bowler'));
+        if (newTotalBalls >= match.oversPerInnings * 6) {
+          await _handleInningsEnd(localInn); return;
+        }
+        if (overComplete) {
+          Future.delayed(const Duration(milliseconds: 300),
+              () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
         }
       }
 
-      if (updInn.target != null && updInn.totalRuns >= updInn.target!) {
-        await _handleInningsEnd(updInn);
+      if (localInn.target != null && newTotalRuns >= localInn.target!) {
+        await _handleInningsEnd(localInn);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
+
+  Future<void> _submitDelivery(int runs, bool isWicket, [String? dismissalType, String? fielderId]) =>
+      _submitDeliveryWithExtra(runs, isWicket, _extra, dismissalType, fielderId);
 
   void _swapEnds() {
     final inn = _innings;
@@ -1193,6 +1131,52 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
         fielders: _bowlingTeam?.players ?? [],
         onSelect: (type, fielderId) => _submitDelivery(0, true, type, fielderId),
         onCancel: () => setState(() => _showDismissal = false),
+      ) : _pickerMode == 'run_out_who' ? _RunOutWhoSheet(
+        striker:    _getName(inn.currentStrikerId),
+        nonStriker: _getName(inn.currentNonStrikerId),
+        onSelect: (strikerOut) {
+          final outId     = strikerOut ? inn.currentStrikerId    : inn.currentNonStrikerId;
+          final survivorId = strikerOut ? inn.currentNonStrikerId : inn.currentStrikerId;
+          // Mark dismissed player as out in local innings
+          setState(() {
+            _runOutStrikerDismissed = strikerOut;
+            // Survivor stays, dismissed slot becomes null for new batsman
+            _innings = Innings.copyWith(inn,
+              currentStrikerId:    strikerOut ? null : survivorId,
+              currentNonStrikerId: strikerOut ? survivorId : null,
+              clearNonStriker:     !strikerOut,
+            );
+            _pickerMode = 'new_batsman';
+          });
+        },
+      ) : _pickerMode == 'new_batsman_end' ? _OnStrikeSheet(
+        bat1: _getName(inn.currentStrikerId),
+        bat2: _getName(inn.currentNonStrikerId),
+        onSelect: (bat1OnStrike) {
+          final newInn = bat1OnStrike
+              ? inn  // already correct
+              : Innings.copyWith(inn,
+                  currentStrikerId:    inn.currentNonStrikerId,
+                  currentNonStrikerId: inn.currentStrikerId,
+                );
+          // Apply end-of-over swap on top if wicket was last ball
+          final finalInn = _wicketOverComplete
+              ? Innings.copyWith(newInn,
+                  currentStrikerId:    newInn.currentNonStrikerId,
+                  currentNonStrikerId: newInn.currentStrikerId,
+                )
+              : newInn;
+          setState(() {
+            _innings = finalInn;
+            _runOutStrikerDismissed = null;
+            _pickerMode = _pendingBowlerChange ? null : null;
+          });
+          if (_pendingBowlerChange) {
+            setState(() { _pendingBowlerChange = false; });
+            Future.delayed(const Duration(milliseconds: 300),
+                () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
+          }
+        },
       ) : _pickerMode != null ? _PlayerPickerSheet(
         title: _pickerTitle,
         players: _pickerMode == 'bowler' || _pickerMode == 'new_bowler' ? _availBowlers : _availBatters,
@@ -1210,10 +1194,102 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       case 'striker':     return 'Select opening batsman';
       case 'non_striker': return 'Select non-striker';
       case 'bowler':      return 'Select opening bowler';
-      case 'new_batsman': return 'Select new batsman';
+      case 'new_batsman':
+        final inn = _innings;
+        if (inn?.currentStrikerId == null) return 'New batsman — will face next ball';
+        return 'New batsman — comes in at non-striker end';
       default:            return 'Over ${(_innings?.totalBalls ?? 0) ~/ 6} — Select bowler';
     }
   }
+}
+
+// ── Run Out — Who Was Out? ─────────────────────────────────────
+class _RunOutWhoSheet extends StatelessWidget {
+  final String striker, nonStriker;
+  final void Function(bool strikerOut) onSelect;
+  const _RunOutWhoSheet({required this.striker, required this.nonStriker, required this.onSelect});
+
+  @override Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.bgCard,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('RUN OUT — WHO WAS OUT?', style: TextStyle(
+          fontSize: 13, fontWeight: FontWeight.w800,
+          color: AppColors.text2, letterSpacing: 1.2)),
+        const SizedBox(height: 16),
+        Row(children: [
+          Expanded(child: _btn(striker, true)),
+          const SizedBox(width: 12),
+          Expanded(child: _btn(nonStriker, false)),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _btn(String name, bool isStriker) => GestureDetector(
+    onTap: () => onSelect(isStriker),
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.wicketFaint,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.wicket.withOpacity(0.4)),
+      ),
+      child: Column(children: [
+        Text(name, style: const TextStyle(
+          fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.text)),
+        const SizedBox(height: 4),
+        Text(isStriker ? 'Striker' : 'Non-striker',
+          style: const TextStyle(fontSize: 11, color: AppColors.text2)),
+      ]),
+    ),
+  );
+}
+
+// ── Who Is On Strike? (after run out new batsman selected) ─────
+class _OnStrikeSheet extends StatelessWidget {
+  final String bat1, bat2;
+  final void Function(bool bat1OnStrike) onSelect;
+  const _OnStrikeSheet({required this.bat1, required this.bat2, required this.onSelect});
+
+  @override Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.bgCard,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('WHO IS ON STRIKE?', style: TextStyle(
+          fontSize: 13, fontWeight: FontWeight.w800,
+          color: AppColors.text2, letterSpacing: 1.2)),
+        const SizedBox(height: 16),
+        Row(children: [
+          Expanded(child: _btn(bat1, true)),
+          const SizedBox(width: 12),
+          Expanded(child: _btn(bat2, false)),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _btn(String name, bool isBat1) => GestureDetector(
+    onTap: () => onSelect(isBat1),
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.accentFaint,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.accent.withOpacity(0.4)),
+      ),
+      child: Column(children: [
+        const Text('🏏', style: TextStyle(fontSize: 20)),
+        const SizedBox(height: 4),
+        Text(name, style: const TextStyle(
+          fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.accent)),
+        const SizedBox(height: 2),
+        const Text('On strike', style: TextStyle(fontSize: 11, color: AppColors.text2)),
+      ]),
+    ),
+  );
 }
 
 class _RunBtn {
