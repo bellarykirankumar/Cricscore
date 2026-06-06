@@ -121,7 +121,6 @@ jobs:
             -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
             DEVELOPMENT_TEAM=N9P5D4TR73
 
           # Step C: Export signed IPA
