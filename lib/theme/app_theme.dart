@@ -1,42 +1,42 @@
 import 'package:flutter/material.dart';
 
 // ─────────────────────────────────────────────────────────────
-//  CricScore Design System — Stadium Nights
+//  CricScore Design System — Royal Blue
 // ─────────────────────────────────────────────────────────────
 
 class AppColors {
-  // Backgrounds — deep navy layers
-  static const bg           = Color(0xFF050A14);
-  static const bgCard       = Color(0xFF0C1525);
-  static const bgElevated   = Color(0xFF152033);
+  // Backgrounds — midnight blue layers
+  static const bg           = Color(0xFF080C1F);
+  static const bgCard       = Color(0xFF0D1230);
+  static const bgElevated   = Color(0xFF131A3D);
 
-  // Accent — saffron orange (stadium lights / India cricket)
-  static const accent       = Color(0xFFFF6B00);
-  static const accentFaint  = Color(0x20FF6B00);
+  // Accent — electric blue
+  static const accent       = Color(0xFF3B82F6);
+  static const accentFaint  = Color(0x203B82F6);
 
-  // Ball — cricket leather red
-  static const ball         = Color(0xFFDC2626);
-  static const ballFaint    = Color(0x20DC2626);
+  // Ball — amber
+  static const ball         = Color(0xFFF59E0B);
+  static const ballFaint    = Color(0x20F59E0B);
 
   // Events
   static const wicket       = Color(0xFFEF4444);
   static const wicketFaint  = Color(0x20EF4444);
-  static const four         = Color(0xFF38BDF8);  // sky blue
-  static const six          = Color(0xFFFBBF24);  // stadium gold
+  static const four         = Color(0xFF60A5FA);  // light blue
+  static const six          = Color(0xFFF59E0B);  // amber
 
   // Text
   static const text         = Color(0xFFEEF2FF);
-  static const text2        = Color(0xFF7A96C0);
-  static const text3        = Color(0xFF3D5070);
+  static const text2        = Color(0xFF94A3B8);
+  static const text3        = Color(0xFF475569);
   static const textOnAcc    = Color(0xFFFFFFFF);
 
   // Borders
-  static const border       = Color(0xFF1A2E4A);
-  static const borderDim    = Color(0xFF0E1C2E);
+  static const border       = Color(0xFF1E2D5A);
+  static const borderDim    = Color(0xFF0F1535);
 
   // Card gradient stops
-  static const cardGradTop  = Color(0xFF152033);
-  static const cardGradBot  = Color(0xFF0C1525);
+  static const cardGradTop  = Color(0xFF131A3D);
+  static const cardGradBot  = Color(0xFF0D1230);
 }
 
 class AppTheme {
