@@ -9,7 +9,8 @@ import '../../models/models.dart';
 import '../../main.dart';
 import '../../widgets/country_picker_sheet.dart';
 import '../support/support_chat_screen.dart';
-import '../match/camera_buffer_screen.dart';
+import '../quick_score/quick_score_screen.dart';
+import '../feedback/feedback_screen.dart';
 import 'fixture_toss_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -184,22 +185,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.bg,
+      drawer: _AppDrawer(user: user, userCountry: _userCountry,
+          onRefresh: _load),
       appBar: AppBar(
         backgroundColor: AppColors.bgCard,
         elevation: 0,
-        automaticallyImplyLeading: false,
+        leading: Builder(builder: (ctx) => IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.text2),
+          onPressed: () => Scaffold.of(ctx).openDrawer(),
+        )),
         title: Row(mainAxisSize: MainAxisSize.min, children: [
           const Text('🏏', style: TextStyle(fontSize: 22)),
           const SizedBox(width: 8),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('CricScore', style: TextStyle(
-              fontSize: 18, fontWeight: FontWeight.w800,
-              color: AppColors.accent,
-            )),
-            if (user != null) Text(
-              'Welcome, ${user.name}',
-              style: const TextStyle(fontSize: 11, color: AppColors.text2),
-            ),
+              fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.accent)),
+            if (user != null) Text('Welcome, ${user.name}',
+              style: const TextStyle(fontSize: 11, color: AppColors.text2)),
           ]),
         ]),
         actions: [
@@ -208,10 +210,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               icon: const Icon(Icons.settings_outlined, color: AppColors.ball),
               onPressed: () => _showAdminDialog(),
             ),
-          IconButton(
-            icon: const Icon(Icons.account_circle_outlined, color: AppColors.text2),
-            onPressed: () => _showAccountSheet(),
-          ),
         ],
       ),
       body: _loading
@@ -225,22 +223,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ownedIds: _ownedIds),
               _TournamentsTab(tours: _tours, onRefresh: _load, user: user),
               _TeamsTab(tours: _tours, onRefresh: _load),
-              const _CameraTab(),
             ],
           ),
-      floatingActionButton: _selectedIndex == 0
-        ? FloatingActionButton(
-            onPressed: () => context.push('/setup').then((_) => _load()),
-            backgroundColor: AppColors.accent,
-            foregroundColor: AppColors.textOnAcc,
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: const Icon(Icons.add, size: 28),
-          )
-        : null,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (i) => setState(() => _selectedIndex = i),
+        onTap: (i) {
+          if (i == 3) {
+            context.push('/setup').then((_) => _load());
+          } else {
+            setState(() => _selectedIndex = i);
+          }
+        },
         backgroundColor: AppColors.bgCard,
         selectedItemColor: AppColors.accent,
         unselectedItemColor: AppColors.text2,
@@ -262,81 +255,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             label: 'Teams',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.videocam_outlined),
-            activeIcon: Icon(Icons.videocam),
-            label: 'Camera',
+            icon: Icon(Icons.add_circle_outline),
+            activeIcon: Icon(Icons.add_circle),
+            label: 'New Match',
           ),
         ],
-      ),
-    );
-  }
-
-  void _showAccountSheet() {
-    final user = ref.read(authProvider).value;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 20),
-            const Icon(Icons.account_circle_outlined, size: 48, color: AppColors.accent),
-            const SizedBox(height: 10),
-            Text(user?.name ?? '', style: const TextStyle(
-              fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.text)),
-            const SizedBox(height: 4),
-            Text(user?.email ?? '', style: const TextStyle(
-              fontSize: 13, color: AppColors.text2)),
-            const SizedBox(height: 20),
-            const Divider(color: AppColors.border),
-            ListTile(
-              leading: Text(
-                _userCountry != null ? countryFlag(_userCountry!) : '🌍',
-                style: const TextStyle(fontSize: 22),
-              ),
-              title: Text(
-                _userCountry != null ? countryName(_userCountry!) : 'Unknown',
-                style: const TextStyle(color: AppColors.text),
-              ),
-              subtitle: const Text('Detected from your location',
-                style: TextStyle(color: AppColors.text2, fontSize: 12)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.support_agent_outlined, color: AppColors.accent),
-              title: const Text('Help & Support', style: TextStyle(color: AppColors.text)),
-              subtitle: const Text('Chat with our AI assistant',
-                  style: TextStyle(color: AppColors.text2, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const SupportChatScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout_outlined, color: AppColors.text2),
-              title: const Text('Sign out', style: TextStyle(color: AppColors.text)),
-              onTap: () async {
-                Navigator.pop(context);
-                await ref.read(authProvider.notifier).signOut();
-                if (mounted) context.go('/login');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: AppColors.wicket),
-              title: const Text('Delete account', style: TextStyle(color: AppColors.wicket)),
-              onTap: () {
-                Navigator.pop(context);
-                _confirmDeleteAccount();
-              },
-            ),
-          ]),
-        ),
       ),
     );
   }
@@ -409,6 +332,151 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ]),
         ),
       ),
+    );
+  }
+}
+
+// ── Welcome Card (shown to new users with no matches) ─────────
+class _WelcomeCard extends StatelessWidget {
+  const _WelcomeCard();
+
+  @override Widget build(BuildContext context) {
+    const features = [
+      ('🏏', 'Ball-by-ball scoring', 'Live AI commentary on every delivery'),
+      ('🏆', 'Tournaments', 'Create leagues, knockouts & round-robins'),
+      ('👥', 'Team management', 'Rosters, player stats & country registry'),
+      ('📋', 'Scoring Sheet', 'Quick tally without any setup — open from the menu'),
+      ('🤖', 'AI Support', 'Ask anything about the app — instant answers'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('🎉 Welcome to CricScore!', style: TextStyle(
+          fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.text)),
+        const SizedBox(height: 6),
+        const Text('Here\'s what you can do:', style: TextStyle(
+          color: AppColors.text2, fontSize: 13)),
+        const SizedBox(height: 16),
+        ...features.map((f) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(f.$1, style: const TextStyle(fontSize: 22)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(f.$2, style: const TextStyle(
+                  fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.text)),
+                Text(f.$3, style: const TextStyle(
+                  fontSize: 12, color: AppColors.text2)),
+              ])),
+          ]),
+        )),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.accentFaint,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.accent.withOpacity(0.2)),
+          ),
+          child: const Row(children: [
+            Icon(Icons.arrow_downward, color: AppColors.accent, size: 18),
+            SizedBox(width: 10),
+            Expanded(child: Text(
+              'Tap New Match below to start scoring, or open the ☰ menu to explore.',
+              style: TextStyle(color: AppColors.accent, fontSize: 13,
+                fontWeight: FontWeight.w600))),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+// ── App Drawer ────────────────────────────────────────────────
+class _AppDrawer extends ConsumerWidget {
+  final AuthUser? user;
+  final String? userCountry;
+  final VoidCallback onRefresh;
+
+  const _AppDrawer({this.user, this.userCountry, required this.onRefresh});
+
+  @override Widget build(BuildContext context, WidgetRef ref) {
+    return Drawer(
+      backgroundColor: AppColors.bg,
+      child: SafeArea(
+        child: Column(children: [
+          // Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+            color: AppColors.bgCard,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.account_circle_outlined,
+                size: 48, color: AppColors.accent),
+              const SizedBox(height: 10),
+              Text(user?.name ?? '',
+                style: const TextStyle(fontSize: 16,
+                  fontWeight: FontWeight.w800, color: AppColors.text)),
+              Text(user?.email ?? '',
+                style: const TextStyle(fontSize: 12, color: AppColors.text2)),
+              if (userCountry != null) ...[
+                const SizedBox(height: 4),
+                Text('${countryFlag(userCountry!)} ${countryName(userCountry!)}',
+                  style: const TextStyle(fontSize: 12, color: AppColors.text2)),
+              ],
+            ]),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          Expanded(child: ListView(padding: EdgeInsets.zero, children: [
+            _tile(context, Icons.sports_cricket_outlined, 'Scoring Sheet',
+              'Quick match tally — no setup needed', () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const QuickScoreScreen()));
+              }),
+            _tile(context, Icons.support_agent_outlined, 'AI Support',
+              'Chat with our AI assistant', () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const SupportChatScreen()));
+              }),
+            _tile(context, Icons.lightbulb_outline, 'Feedback & Suggestions',
+              'Share ideas or report issues', () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const FeedbackScreen()));
+              }),
+            const Divider(color: AppColors.border),
+            _tile(context, Icons.logout_outlined, 'Sign out', '', () async {
+              Navigator.pop(context);
+              await ref.read(authProvider.notifier).signOut();
+              if (context.mounted) context.go('/login');
+            }, color: AppColors.text2),
+            _tile(context, Icons.delete_outline, 'Delete account', '', () {
+              Navigator.pop(context);
+              // Find the HomeScreen state to call _confirmDeleteAccount
+              final homeState = context.findAncestorStateOfType<_HomeScreenState>();
+              homeState?._confirmDeleteAccount();
+            }, color: AppColors.wicket),
+          ])),
+        ]),
+      ),
+    );
+  }
+
+  Widget _tile(BuildContext context, IconData icon, String title,
+      String subtitle, VoidCallback onTap, {Color? color}) {
+    final c = color ?? AppColors.accent;
+    return ListTile(
+      leading: Icon(icon, color: c),
+      title: Text(title, style: TextStyle(
+        color: AppColors.text, fontWeight: FontWeight.w600)),
+      subtitle: subtitle.isNotEmpty
+          ? Text(subtitle, style: const TextStyle(
+              color: AppColors.text2, fontSize: 12))
+          : null,
+      onTap: onTap,
     );
   }
 }
@@ -602,18 +670,7 @@ class _HomeTab extends StatelessWidget {
         ],
 
         if (live.isEmpty && tours.isEmpty && recent.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(48),
-            child: Column(children: [
-              Text('🏟️', style: TextStyle(fontSize: 48)),
-              SizedBox(height: 16),
-              Text('No matches yet', style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.text)),
-              SizedBox(height: 8),
-              Text('Tap + to start a match or create a tournament',
-                style: TextStyle(color: AppColors.text2)),
-            ]),
-          ),
+          const _WelcomeCard(),
         const SizedBox(height: 100),
       ]),
     );
@@ -800,14 +857,5 @@ class _TeamsTab extends StatelessWidget {
         ),
       const SizedBox(height: 80),
     ]);
-  }
-}
-
-// ── Camera Tab ────────────────────────────────────────────────
-class _CameraTab extends StatelessWidget {
-  const _CameraTab();
-  @override
-  Widget build(BuildContext context) {
-    return const CameraBufferScreen();
   }
 }
