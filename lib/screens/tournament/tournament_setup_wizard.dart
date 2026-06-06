@@ -163,10 +163,79 @@ class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
       });
       setState(() => _state.generatedFixtures = fixtures);
     } catch (e) {
-      setState(() => _error = 'Schedule error: $e');
+      // Server failed — fall back to local round-robin generation
+      try {
+        final fixtures = _buildRoundRobin();
+        setState(() {
+          _state.generatedFixtures = fixtures;
+          _error = null;
+        });
+      } catch (fallbackErr) {
+        setState(() => _error = 'Schedule error: $e');
+      }
     } finally {
       setState(() => _schedLoading = false);
     }
+  }
+
+  // Local round-robin schedule fallback
+  List<Map<String, dynamic>> _buildRoundRobin() {
+    final teams = _state.teamNames.where((n) => n.isNotEmpty).toList();
+    if (teams.length < 2) return [];
+
+    // Build all pairings (single round-robin)
+    final pairs = <List<String>>[];
+    for (int i = 0; i < teams.length; i++) {
+      for (int j = i + 1; j < teams.length; j++) {
+        pairs.add([teams[i], teams[j]]);
+      }
+    }
+
+    // Assign dates across play days
+    final playDayNums = _state.playDays.map((d) {
+      const map = {
+        'monday': 1, 'tuesday': 2, 'wednesday': 3,
+        'thursday': 4, 'friday': 5, 'saturday': 6, 'sunday': 7,
+      };
+      return map[d] ?? 6;
+    }).toList()..sort();
+
+    final fixtures = <Map<String, dynamic>>[];
+    var date = _state.startDate!;
+    int slot = 0;
+
+    for (int i = 0; i < pairs.length; i++) {
+      // Advance date to next valid play day when slot fills up
+      if (slot >= _state.matchesPerDay) {
+        slot = 0;
+        date = date.add(const Duration(days: 1));
+        while (!playDayNums.contains(date.weekday)) {
+          date = date.add(const Duration(days: 1));
+        }
+      }
+      // Advance from start date to first valid play day
+      if (i == 0) {
+        while (!playDayNums.contains(date.weekday)) {
+          date = date.add(const Duration(days: 1));
+        }
+      }
+
+      final matchTime = DateTime(
+        date.year, date.month, date.day,
+        _state.startTime.hour,
+        _state.startTime.minute,
+      ).add(Duration(hours: slot * 3)); // 3h gap between matches
+
+      fixtures.add({
+        'homeTeam': pairs[i][0],
+        'awayTeam': pairs[i][1],
+        'date': date.toIso8601String().substring(0, 10),
+        'time': '${matchTime.hour.toString().padLeft(2, '0')}:${matchTime.minute.toString().padLeft(2, '0')}',
+        'round': i + 1,
+      });
+      slot++;
+    }
+    return fixtures;
   }
 
   // ── Create tournament + teams + fixtures ───────────────────
