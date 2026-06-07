@@ -272,6 +272,9 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   void _handleBall(int runs, String type) {
     final inn = _innings;
     if (inn == null) return;
+    // Block scoring while any picker or confirmation is active
+    if (_pickerMode != null) return;
+    if (_showDismissal) return;
     if (inn.currentStrikerId == null || inn.currentNonStrikerId == null || inn.currentBowlerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select players first')));
       setState(() => _pickerMode = 'striker');
@@ -390,6 +393,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     final match = _match;
     final inn = _innings;
     if (match == null || inn == null) return;
+    if (_pickerMode != null) return; // picker active — ignore accidental taps
     if (inn.currentStrikerId == null || inn.currentNonStrikerId == null || inn.currentBowlerId == null) return;
 
     setState(() { _saving = true; _showDismissal = false; _extra = null; });
@@ -587,8 +591,9 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
           await _handleInningsEnd(localInn); return;
         }
         if (overComplete) {
-          Future.delayed(const Duration(milliseconds: 300),
-              () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
+          // Set pickerMode immediately so scoring buttons are blocked before the
+          // delayed sheet appears — prevents accidental scoring between deliveries
+          setState(() => _pickerMode = 'new_bowler');
         }
       }
 
