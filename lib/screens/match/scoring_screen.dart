@@ -963,7 +963,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
             child: Column(children: [
               Row(children: [
-                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20, color: AppColors.text2), onPressed: () => context.go('/')),
+                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20, color: AppColors.text2), onPressed: () => context.pop()),
                 Expanded(child: Column(children: [
                   Text('${_battingTeam?.shortName ?? "—"} vs ${_bowlingTeam?.shortName ?? "—"}',
                     style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text)),
@@ -1006,7 +1006,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                     ));
                     if (ok == true) {
                       await MatchApi.update(widget.matchId, {'status': 'completed'});
-                      if (mounted) context.go('/scorecard/${widget.matchId}');
+                      if (mounted) context.push('/scorecard/${widget.matchId}');
                     }
                   },
                   child: Container(
@@ -1760,13 +1760,13 @@ class _MatchResultScreenState extends State<_MatchResultScreen> {
         Padding(padding: const EdgeInsets.all(16), child: Column(children: [
           SizedBox(width: double.infinity, height: 52,
             child: ElevatedButton.icon(
-              onPressed: () => context.go('/scorecard/${widget.matchId}'),
+              onPressed: () => context.push('/scorecard/${widget.matchId}'),
               icon: const Icon(Icons.assignment_outlined, size: 18),
               label: const Text('Full scorecard', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)))),
           const SizedBox(height: 10),
           SizedBox(width: double.infinity, height: 48,
             child: OutlinedButton(
-              onPressed: () => context.go('/?t=${DateTime.now().millisecondsSinceEpoch}'),
+              onPressed: () => context.pop(),
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
                 side: const BorderSide(color: AppColors.border),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),

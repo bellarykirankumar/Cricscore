@@ -169,7 +169,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         'battingTeamId': battingTeamId, 'bowlingTeamId': bowlingTeamId,
       });
 
-      if (mounted) context.go('/scoring/${match.id}');
+      if (mounted) context.push('/scoring/${match.id}');
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
