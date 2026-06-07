@@ -29,9 +29,12 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   int        _rawBallCount = 0;
 
   // Wicket context — set before showing new_batsman picker
-  bool       _wicketOverComplete     = false; // was wicket on last ball of over?
-  bool?      _runOutStrikerDismissed;          // true=striker out, false=non-striker out, null=not run out
-  bool       _pendingStrikerConfirm  = false;  // show "Is X on strike?" after bowler is selected
+  bool       _wicketOverComplete     = false;
+  bool?      _runOutStrikerDismissed;
+  bool       _pendingStrikerConfirm  = false;
+
+  // Tracks all dismissed player IDs for this innings — authoritative filter for picker
+  final Set<String> _dismissedIds = {};
 
   // Voice scoring
   final SpeechToText _speech = SpeechToText();
@@ -171,6 +174,11 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
           currentBowlerId:     full.currentBowlerId     ?? last.bowlerId,
         );
       }
+      // Rebuild dismissed set from server data on load/reload
+      _dismissedIds
+        ..clear()
+        ..addAll(resolved.batsmanStats.entries
+            .where((e) => e.value.isOut).map((e) => e.key));
       setState(() { _match = m; _innings = resolved; _loading = false; });
       // Only show picker for what's actually missing
       if (resolved.currentStrikerId == null) {
@@ -205,8 +213,11 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     final inn = _innings;
     if (inn == null) return [];
     return (_battingTeam?.players ?? []).where((p) {
+      if (p.id == inn.currentStrikerId || p.id == inn.currentNonStrikerId) return false;
+      if (_dismissedIds.contains(p.id)) return false;
       final s = inn.batsmanStats[p.id];
-      return (s == null || !s.isOut) && p.id != inn.currentStrikerId && p.id != inn.currentNonStrikerId;
+      if (s != null && s.isOut) return false;
+      return true;
     }).toList();
   }
 
@@ -519,6 +530,11 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       nextNonStriker = tmp;
     }
 
+    // Track dismissed player — for run_out we don't know who yet; resolved in picker
+    if (isWicket && dismissalType != 'run_out') {
+      _dismissedIds.add(inn.currentStrikerId ?? '');
+    }
+
     // Apply local state immediately — UI responds without waiting for network
     // Compute local innings state — all placement logic here, never from server
     bool clearS = false, clearNS = false;
@@ -818,6 +834,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
           'battingTeamId': cur.bowlingTeamId, 'bowlingTeamId': cur.battingTeamId,
         });
         await _loadMatch();
+        _dismissedIds.clear();
         setState(() { _rawBallCount = 0; _pickerMode = 'striker'; });
       } else {
         final m = await MatchApi.get(widget.matchId);
@@ -1209,9 +1226,9 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
         striker:    _getName(inn.currentStrikerId),
         nonStriker: _getName(inn.currentNonStrikerId),
         onSelect: (strikerOut) {
-          final outId     = strikerOut ? inn.currentStrikerId    : inn.currentNonStrikerId;
+          final outId      = strikerOut ? inn.currentStrikerId    : inn.currentNonStrikerId;
           final survivorId = strikerOut ? inn.currentNonStrikerId : inn.currentStrikerId;
-          // Mark dismissed player as out in local innings
+          if (outId != null) _dismissedIds.add(outId);
           setState(() {
             _runOutStrikerDismissed = strikerOut;
             // Survivor stays, dismissed slot becomes null for new batsman
