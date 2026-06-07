@@ -92,6 +92,7 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
   Future<void> _startBuffering() async {
     if (_buffering || _cam == null || !_cam!.value.isInitialized) return;
     setState(() { _buffering = true; _status = '🔴 Buffering…'; });
+    ClipWsService.instance.setBuffering(true);
     _buffer.clear();
 
     if (_matchId.isNotEmpty) {
@@ -146,6 +147,7 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
   void _stopBuffering() {
     if (!_buffering) return;
     setState(() { _buffering = false; _status = 'Stopped'; });
+    ClipWsService.instance.setBuffering(false);
     _wsSub?.cancel();
     _wsSub = null;
     ClipWsService.instance.disconnect();

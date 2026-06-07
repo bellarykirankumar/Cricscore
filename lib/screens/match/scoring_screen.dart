@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,21 +37,31 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   // Tracks all dismissed player IDs for this innings — authoritative filter for picker
   final Set<String> _dismissedIds = {};
 
+  // Camera buffering state — reflects CameraBufferScreen via ClipWsService
+  bool _cameraBuffering = false;
+
   // Voice scoring
   final SpeechToText _speech = SpeechToText();
   bool   _speechAvailable = false;
   bool   _isListening     = false;
   String _voiceText       = '';
 
+  StreamSubscription<bool>? _bufferingSub;
+
   @override void initState() {
     super.initState();
     _loadMatch();
     _initSpeech();
-    // Connect WebSocket so clip triggers can be sent immediately on wicket/boundary
     ClipWsService.instance.connect(widget.matchId);
+    // Sync camera buffering indicator with CameraBufferScreen state
+    _cameraBuffering = ClipWsService.instance.isBuffering;
+    _bufferingSub = ClipWsService.instance.onBufferingChanged.listen((active) {
+      if (mounted) setState(() => _cameraBuffering = active);
+    });
   }
 
   @override void dispose() {
+    _bufferingSub?.cancel();
     _speech.stop();
     ClipWsService.instance.disconnect();
     super.dispose();
@@ -959,8 +970,11 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                 IconButton(icon: const Icon(Icons.assignment_outlined, color: AppColors.text2),
                   onPressed: () => context.push('/scorecard/${widget.matchId}')),
                 IconButton(
-                  tooltip: 'Camera device',
-                  icon: const Icon(Icons.videocam_outlined, color: AppColors.text2),
+                  tooltip: _cameraBuffering ? 'Camera buffering' : 'Camera device',
+                  icon: Icon(
+                    _cameraBuffering ? Icons.videocam : Icons.videocam_outlined,
+                    color: _cameraBuffering ? AppColors.wicket : AppColors.text2,
+                  ),
                   onPressed: () => _showCameraSheet(),
                 ),
                 IconButton(

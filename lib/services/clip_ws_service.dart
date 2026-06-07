@@ -61,7 +61,6 @@ class ClipWsService {
   final _triggerCtrl = StreamController<ClipTriggerEvent>.broadcast();
 
   // Local triggers — fired immediately when THIS device scores an event.
-  // Allows the camera screen to react when running on the same phone as scorer.
   static final _localTrigger = StreamController<ClipTriggerEvent>.broadcast();
 
   /// Combined stream: receives triggers from both WebSocket (other devices)
@@ -70,6 +69,18 @@ class ClipWsService {
       StreamGroup.merge([_triggerCtrl.stream, _localTrigger.stream]);
 
   bool get isConnected => _channel != null;
+
+  // ── Buffering state — shared between CameraBufferScreen and ScoringScreen ──
+  bool _isBuffering = false;
+  bool get isBuffering => _isBuffering;
+
+  final _bufferingCtrl = StreamController<bool>.broadcast();
+  Stream<bool> get onBufferingChanged => _bufferingCtrl.stream;
+
+  void setBuffering(bool active) {
+    _isBuffering = active;
+    _bufferingCtrl.add(active);
+  }
 
   Future<void> connect(String matchId) async {
     if (_channel != null && _matchId == matchId) return; // already connected
