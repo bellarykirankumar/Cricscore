@@ -36,7 +36,7 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
   String _matchId      = '';
 
   static const _segmentSecs  = 10; // rolling buffer chunk size
-  static const _maxSegments  = 3;  // 30s of lookback
+  static const _maxSegments  = 1;  // 10s of lookback — enough for cricket shots
   static const _postRollSecs = 5;  // record this many seconds after the event
 
   final _buffer = Queue<File>(); // rolling pre-buffer
@@ -190,6 +190,15 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
       setState(() => _status = '☁️ Uploading ${allSegments.length} segments…');
 
       // Upload each segment as a separate S3 file under the same clipId prefix
+      // The partial segment (second-to-last) contains the actual event —
+      // it's the segment that was recording when the trigger arrived.
+      // Save it as the primary clip. All segments are uploaded for reference.
+      final primaryIdx = allSegments.length >= 2
+          ? allSegments.length - 2  // partial segment (just before post-roll)
+          : 0;                       // fallback: only one segment
+
+      String? primaryS3Key;
+
       for (var i = 0; i < allSegments.length; i++) {
         final seg = allSegments[i];
         final isPost = i == allSegments.length - 1;
@@ -211,18 +220,20 @@ class _CameraBufferScreenState extends State<CameraBufferScreen>
         );
         if (res.statusCode != 200) throw Exception('S3 upload $i failed: ${res.statusCode}');
 
-        // Save the first segment as the primary clip record
-        if (i == 0) {
-          await ClipApi.save(
-            matchId:      t.matchId,
-            inningsNumber:t.inningsNumber,
-            over:          t.over,
-            ball:          t.ball,
-            event:         t.event,
-            s3Key:         presign.s3Key,
-            durationMs:    totalDurationMs,
-          );
-        }
+        if (i == primaryIdx) primaryS3Key = presign.s3Key;
+      }
+
+      // Save primary clip record pointing to the segment containing the event
+      if (primaryS3Key != null) {
+        await ClipApi.save(
+          matchId:      t.matchId,
+          inningsNumber:t.inningsNumber,
+          over:          t.over,
+          ball:          t.ball,
+          event:         t.event,
+          s3Key:         primaryS3Key,
+          durationMs:    totalDurationMs,
+        );
       }
 
       // Clean up
