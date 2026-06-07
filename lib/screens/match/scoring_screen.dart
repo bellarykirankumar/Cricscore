@@ -29,8 +29,9 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   int        _rawBallCount = 0;
 
   // Wicket context — set before showing new_batsman picker
-  bool       _wicketOverComplete    = false; // was wicket on last ball of over?
-  bool?      _runOutStrikerDismissed; // true=striker out, false=non-striker out, null=not a run out
+  bool       _wicketOverComplete     = false; // was wicket on last ball of over?
+  bool?      _runOutStrikerDismissed;          // true=striker out, false=non-striker out, null=not run out
+  bool       _pendingStrikerConfirm  = false;  // show "Is X on strike?" after bowler is selected
 
   // Voice scoring
   final SpeechToText _speech = SpeechToText();
@@ -229,23 +230,20 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     if (inn == null) return;
     HapticFeedback.selectionClick();
     if (_pickerMode == 'new_batsman') {
-      // Placement depends on wicket context set before showing picker:
-      //   - Normal wicket mid-over:    new batsman = striker (faces next ball)
-      //   - Normal wicket end-of-over: new batsman = non-striker
-      //   - Run out (resolved):        placement decided by _runOutStrikerDismissed + over context
       final newInn = (inn.currentStrikerId == null)
-          ? Innings.copyWith(inn, currentStrikerId: player.id)    // striker slot empty
-          : Innings.copyWith(inn, currentNonStrikerId: player.id); // non-striker slot empty
+          ? Innings.copyWith(inn, currentStrikerId: player.id)
+          : Innings.copyWith(inn, currentNonStrikerId: player.id);
       setState(() => _innings = newInn);
 
-      if (_runOutStrikerDismissed != null) {
-        // Run out: after picking new batsman, ask who's on strike
+      if (_runOutStrikerDismissed != null && !_wicketOverComplete) {
+        // Mid-over run out: ask who's on strike before resuming
         Future.delayed(const Duration(milliseconds: 200),
-            () { if (mounted) setState(() => _pickerMode = 'new_batsman_end'); });
+            () { if (mounted) setState(() => _pickerMode = 'striker_confirm'); });
         return;
       }
       if (_pendingBowlerChange) {
-        setState(() { _pendingBowlerChange = false; _pickerMode = null; });
+        // Last ball wicket (normal or run out): close over → new bowler → striker confirm
+        setState(() { _pendingBowlerChange = false; _pendingStrikerConfirm = true; _pickerMode = null; });
         Future.delayed(const Duration(milliseconds: 300),
             () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
         return;
@@ -263,6 +261,10 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       if (inn.currentBowlerId == null) { setState(() => _pickerMode = 'bowler'); return; }
     } else if (_pickerMode == 'bowler' || _pickerMode == 'new_bowler') {
       setState(() => _innings = Innings.copyWith(inn, currentBowlerId: player.id));
+      if (_pendingStrikerConfirm) {
+        setState(() { _pendingStrikerConfirm = false; _pickerMode = 'striker_confirm'; });
+        return;
+      }
     }
     setState(() => _pickerMode = null);
   }
@@ -559,22 +561,20 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
           await _handleInningsEnd(localInn); return;
         }
         // Store wicket context for the picker to use
-        _wicketOverComplete = overComplete;
+        _wicketOverComplete    = overComplete;
         _runOutStrikerDismissed = null;
+        _pendingStrikerConfirm  = false;
 
         if (dismissalType == 'run_out') {
-          // Ask user which batsman was run out
+          // For run out at end of over, flag bowler change now so picker chain picks it up
+          if (overComplete) _pendingBowlerChange = true;
           Future.delayed(const Duration(milliseconds: 300),
               () { if (mounted) setState(() => _pickerMode = 'run_out_who'); });
         } else {
           // Normal dismissal — striker is always out
           if (overComplete) {
-            // Last ball: non-striker becomes striker, new batsman is non-striker
-            // localInn already has currentStriker=old non-striker, currentNonStriker=null
             setState(() { _pendingBowlerChange = true; _pickerMode = 'new_batsman'; });
           } else {
-            // Mid-over: new batsman faces next ball (striker end)
-            // localInn has currentStriker=null, currentNonStriker=old non-striker
             Future.delayed(const Duration(milliseconds: 300),
                 () { if (mounted) setState(() => _pickerMode = 'new_batsman'); });
           }
@@ -1154,33 +1154,20 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
             _pickerMode = 'new_batsman';
           });
         },
-      ) : _pickerMode == 'new_batsman_end' ? _OnStrikeSheet(
-        bat1: _getName(inn.currentStrikerId),
-        bat2: _getName(inn.currentNonStrikerId),
-        onSelect: (bat1OnStrike) {
-          final newInn = bat1OnStrike
-              ? inn  // already correct
-              : Innings.copyWith(inn,
-                  currentStrikerId:    inn.currentNonStrikerId,
-                  currentNonStrikerId: inn.currentStrikerId,
-                );
-          // Apply end-of-over swap on top if wicket was last ball
-          final finalInn = _wicketOverComplete
-              ? Innings.copyWith(newInn,
-                  currentStrikerId:    newInn.currentNonStrikerId,
-                  currentNonStrikerId: newInn.currentStrikerId,
-                )
-              : newInn;
+      ) : _pickerMode == 'striker_confirm' ? _StrikerConfirmSheet(
+        strikerName: _getName(inn.currentStrikerId),
+        onConfirm: (isCorrect) {
           setState(() {
-            _innings = finalInn;
+            if (!isCorrect) {
+              // Swap striker and non-striker
+              _innings = Innings.copyWith(inn,
+                currentStrikerId:    inn.currentNonStrikerId,
+                currentNonStrikerId: inn.currentStrikerId,
+              );
+            }
             _runOutStrikerDismissed = null;
-            _pickerMode = _pendingBowlerChange ? null : null;
+            _pickerMode = null;
           });
-          if (_pendingBowlerChange) {
-            setState(() { _pendingBowlerChange = false; });
-            Future.delayed(const Duration(milliseconds: 300),
-                () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
-          }
         },
       ) : _pickerMode != null ? _PlayerPickerSheet(
         title: _pickerTitle,
@@ -1252,47 +1239,49 @@ class _RunOutWhoSheet extends StatelessWidget {
   );
 }
 
-// ── Who Is On Strike? (after run out new batsman selected) ─────
-class _OnStrikeSheet extends StatelessWidget {
-  final String bat1, bat2;
-  final void Function(bool bat1OnStrike) onSelect;
-  const _OnStrikeSheet({required this.bat1, required this.bat2, required this.onSelect});
+// ── Striker confirmation (shown after bowler selected on over-end wicket) ──
+class _StrikerConfirmSheet extends StatelessWidget {
+  final String strikerName;
+  final void Function(bool isCorrect) onConfirm;
+  const _StrikerConfirmSheet({required this.strikerName, required this.onConfirm});
 
   @override Widget build(BuildContext context) {
     return Container(
       color: AppColors.bgCard,
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 36),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text('WHO IS ON STRIKE?', style: TextStyle(
-          fontSize: 13, fontWeight: FontWeight.w800,
-          color: AppColors.text2, letterSpacing: 1.2)),
-        const SizedBox(height: 16),
+        const Text('🏏', style: TextStyle(fontSize: 28)),
+        const SizedBox(height: 12),
+        RichText(text: TextSpan(
+          style: const TextStyle(fontSize: 17, color: AppColors.text, height: 1.4),
+          children: [
+            const TextSpan(text: 'Is '),
+            TextSpan(text: strikerName,
+              style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.accent)),
+            const TextSpan(text: ' on strike?'),
+          ],
+        )),
+        const SizedBox(height: 24),
         Row(children: [
-          Expanded(child: _btn(bat1, true)),
+          Expanded(child: _btn('Yes', true, AppColors.accent, AppColors.accentFaint)),
           const SizedBox(width: 12),
-          Expanded(child: _btn(bat2, false)),
+          Expanded(child: _btn('No, swap', false, AppColors.text2, AppColors.bgElevated)),
         ]),
       ]),
     );
   }
 
-  Widget _btn(String name, bool isBat1) => GestureDetector(
-    onTap: () => onSelect(isBat1),
+  Widget _btn(String label, bool confirm, Color fg, Color bg) => GestureDetector(
+    onTap: () => onConfirm(confirm),
     child: Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        color: AppColors.accentFaint,
+        color: bg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.accent.withOpacity(0.4)),
+        border: Border.all(color: fg.withOpacity(0.4)),
       ),
-      child: Column(children: [
-        const Text('🏏', style: TextStyle(fontSize: 20)),
-        const SizedBox(height: 4),
-        Text(name, style: const TextStyle(
-          fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.accent)),
-        const SizedBox(height: 2),
-        const Text('On strike', style: TextStyle(fontSize: 11, color: AppColors.text2)),
-      ]),
+      child: Center(child: Text(label, style: TextStyle(
+        fontSize: 15, fontWeight: FontWeight.w800, color: fg))),
     ),
   );
 }
