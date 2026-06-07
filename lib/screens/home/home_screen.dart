@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import '../../main.dart';
 import '../../widgets/country_picker_sheet.dart';
 import '../support/support_chat_screen.dart';
+import '../match/camera_buffer_screen.dart';
 import '../quick_score/quick_score_screen.dart';
 import '../feedback/feedback_screen.dart';
 import 'fixture_toss_sheet.dart';
@@ -186,7 +187,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       drawer: _AppDrawer(user: user, userCountry: _userCountry,
-          onRefresh: _load),
+          onRefresh: _load,
+          onOpenCamera: () => setState(() => _selectedIndex = 3)),
       appBar: AppBar(
         backgroundColor: AppColors.bgCard,
         elevation: 0,
@@ -223,6 +225,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ownedIds: _ownedIds),
               _TournamentsTab(tours: _tours, onRefresh: _load, user: user),
               _TeamsTab(tours: _tours, onRefresh: _load),
+              // Hidden camera tab — kept alive in IndexedStack so buffering
+              // continues while user scores. Accessible from drawer.
+              const CameraBufferScreen(),
             ],
           ),
       bottomNavigationBar: BottomNavigationBar(
@@ -398,8 +403,9 @@ class _AppDrawer extends ConsumerWidget {
   final AuthUser? user;
   final String? userCountry;
   final VoidCallback onRefresh;
+  final VoidCallback onOpenCamera;
 
-  const _AppDrawer({this.user, this.userCountry, required this.onRefresh});
+  const _AppDrawer({this.user, this.userCountry, required this.onRefresh, required this.onOpenCamera});
 
   @override Widget build(BuildContext context, WidgetRef ref) {
     return Drawer(
@@ -429,6 +435,11 @@ class _AppDrawer extends ConsumerWidget {
           ),
           const Divider(height: 1, color: AppColors.border),
           Expanded(child: ListView(padding: EdgeInsets.zero, children: [
+            _tile(context, Icons.videocam_outlined, 'Camera Mode',
+              'Use this device as a clip camera', () {
+                Navigator.pop(context);
+                onOpenCamera();
+              }),
             _tile(context, Icons.sports_cricket_outlined, 'Scoring Sheet',
               'Quick match tally — no setup needed', () {
                 Navigator.pop(context);
