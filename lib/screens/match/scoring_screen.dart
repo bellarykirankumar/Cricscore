@@ -63,7 +63,10 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
   @override void dispose() {
     _bufferingSub?.cancel();
     _speech.stop();
-    ClipWsService.instance.disconnect();
+    // Don't disconnect if camera is still buffering on this device
+    if (!ClipWsService.instance.isBuffering) {
+      ClipWsService.instance.disconnect();
+    }
     super.dispose();
   }
 

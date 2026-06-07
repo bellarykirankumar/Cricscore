@@ -84,7 +84,7 @@ class ClipWsService {
 
   Future<void> connect(String matchId) async {
     if (_channel != null && _matchId == matchId) return; // already connected
-    await disconnect();
+    await _disconnectChannel(); // disconnect WS only, preserve buffering state
     _matchId = matchId;
 
     _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
@@ -147,7 +147,8 @@ class ClipWsService {
     }));
   }
 
-  Future<void> disconnect() async {
+  // Internal: close the WS channel without touching buffering state
+  Future<void> _disconnectChannel() async {
     _matchId = null;
     await _sub?.cancel();
     _sub = null;
@@ -155,9 +156,16 @@ class ClipWsService {
     _channel = null;
   }
 
+  // Full disconnect — also clears buffering state
+  Future<void> disconnect() async {
+    await _disconnectChannel();
+    setBuffering(false);
+  }
+
   void dispose() {
     disconnect();
     _triggerCtrl.close();
+    _bufferingCtrl.close();
   }
 }
 
