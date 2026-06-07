@@ -650,13 +650,16 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
         _runOutStrikerDismissed = null;
         _pendingStrikerConfirm  = false;
 
+        // If no batsmen left, innings is over (all out)
+        if (_availBatters.isEmpty) {
+          await _handleInningsEnd(localInn); return;
+        }
+
         if (dismissalType == 'run_out') {
-          // For run out at end of over, flag bowler change now so picker chain picks it up
           if (overComplete) _pendingBowlerChange = true;
           Future.delayed(const Duration(milliseconds: 300),
               () { if (mounted) setState(() => _pickerMode = 'run_out_who'); });
         } else {
-          // Normal dismissal — striker is always out
           if (overComplete) {
             setState(() { _pendingBowlerChange = true; _pickerMode = 'new_batsman'; });
           } else {
