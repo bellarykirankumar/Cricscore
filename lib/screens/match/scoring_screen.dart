@@ -451,25 +451,28 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     }
 
     // Apply local state immediately — UI responds without waiting for network
-    String? localStriker;
-    String? localNonStriker;
-    bool clearNS = false;
+    // Compute local innings state — all placement logic here, never from server
+    bool clearS = false, clearNS = false;
+    String? localStriker, localNonStriker;
 
     if (!isWicket) {
       localStriker    = nextStriker;
       localNonStriker = nextNonStriker;
     } else if (dismissalType == 'run_out') {
-      // Run out: don't change anything yet — picker will resolve who's out
+      // Run out: keep current positions — picker will resolve who's out
       localStriker    = inn.currentStrikerId;
       localNonStriker = inn.currentNonStrikerId;
     } else if (overComplete) {
-      // Normal wicket, last ball: non-striker becomes striker next over,
-      // new batsman comes in at non-striker end
+      // Normal wicket, last ball of over:
+      // → non-striker walks to striker end for next over
+      // → new batsman comes in at non-striker end (to be picked)
       localStriker = inn.currentNonStrikerId;
-      clearNS      = true; // null until new batsman picked
+      clearNS      = true;
     } else {
-      // Normal wicket, mid-over: new batsman faces next ball at striker end
-      clearNS         = true; // null until new batsman picked
+      // Normal wicket, mid-over (balls 1–5):
+      // → striker is out, new batsman faces next ball (striker end, to be picked)
+      // → non-striker stays unchanged
+      clearS          = true;
       localNonStriker = inn.currentNonStrikerId;
     }
 
@@ -479,6 +482,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       totalWickets:       newTotalWickets,
       currentStrikerId:   localStriker,
       currentNonStrikerId: localNonStriker,
+      clearStriker:       clearS,
       clearNonStriker:    clearNS,
       deliveries:         newDeliveries,
     );
@@ -1142,8 +1146,9 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
             _runOutStrikerDismissed = strikerOut;
             // Survivor stays, dismissed slot becomes null for new batsman
             _innings = Innings.copyWith(inn,
-              currentStrikerId:    strikerOut ? null : survivorId,
+              currentStrikerId:    strikerOut ? null     : survivorId,
               currentNonStrikerId: strikerOut ? survivorId : null,
+              clearStriker:        strikerOut,
               clearNonStriker:     !strikerOut,
             );
             _pickerMode = 'new_batsman';
