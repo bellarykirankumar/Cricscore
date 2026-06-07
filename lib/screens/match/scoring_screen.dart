@@ -434,6 +434,69 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     final newTotalWickets = inn.totalWickets + (isWicket ? 1 : 0);
     final newDeliveries   = <Delivery>[...(inn.deliveries ?? []), newDelivery];
 
+    // ── Update batsman & bowler stats locally ─────────────────────
+    // Deep-copy existing stats maps
+    final newBatsmanStats = Map<String, BatsmanStats>.from(inn.batsmanStats);
+    final newBowlerStats  = Map<String, BowlerStats>.from(inn.bowlerStats);
+
+    final strikerId = inn.currentStrikerId ?? '';
+    final bowlerId  = inn.currentBowlerId  ?? '';
+
+    // Ensure striker entry exists
+    if (strikerId.isNotEmpty && !newBatsmanStats.containsKey(strikerId)) {
+      newBatsmanStats[strikerId] = const BatsmanStats(
+        playerId: '', runsScored: 0, ballsFaced: 0,
+        fours: 0, sixes: 0, strikeRate: 0, isOut: false, didNotBat: false,
+      );
+    }
+    // Ensure non-striker entry exists so they appear in scorecard
+    final nonStrikerId = inn.currentNonStrikerId ?? '';
+    if (nonStrikerId.isNotEmpty && !newBatsmanStats.containsKey(nonStrikerId)) {
+      newBatsmanStats[nonStrikerId] = const BatsmanStats(
+        playerId: '', runsScored: 0, ballsFaced: 0,
+        fours: 0, sixes: 0, strikeRate: 0, isOut: false, didNotBat: false,
+      );
+    }
+    if (strikerId.isNotEmpty) {
+      final old = newBatsmanStats[strikerId]!;
+      final newBalls = old.ballsFaced + (isLegal ? 1 : 0);
+      final newRuns  = old.runsScored + runsBat;
+      newBatsmanStats[strikerId] = BatsmanStats(
+        playerId:   strikerId,
+        runsScored: newRuns,
+        ballsFaced: newBalls,
+        fours:      old.fours + (runsBat == 4 && extra == null ? 1 : 0),
+        sixes:      old.sixes + (runsBat == 6 ? 1 : 0),
+        strikeRate: newBalls > 0 ? (newRuns / newBalls * 100).roundToDouble() : 0,
+        isOut:      isWicket ? true : old.isOut,
+        didNotBat:  false,
+      );
+    }
+    // Ensure bowler entry exists
+    if (bowlerId.isNotEmpty && !newBowlerStats.containsKey(bowlerId)) {
+      newBowlerStats[bowlerId] = BowlerStats(
+        playerId: bowlerId, legalDeliveries: 0, runsConceded: 0,
+        wicketsTaken: 0, maidenOvers: 0, wides: 0, noBalls: 0, economy: 0,
+      );
+    }
+    if (bowlerId.isNotEmpty) {
+      final old = newBowlerStats[bowlerId]!;
+      final newLegal = old.legalDeliveries + (isLegal ? 1 : 0);
+      final newRuns  = old.runsConceded + runsTotal;
+      newBowlerStats[bowlerId] = BowlerStats(
+        playerId:        bowlerId,
+        legalDeliveries: newLegal,
+        runsConceded:    newRuns,
+        wicketsTaken:    old.wicketsTaken + (isWicket ? 1 : 0),
+        maidenOvers:     old.maidenOvers,
+        wides:           old.wides + (extra == 'wide' ? 1 : 0),
+        noBalls:         old.noBalls + (extra == 'no_ball' ? 1 : 0),
+        economy:         newLegal > 0
+            ? double.parse((newRuns / (newLegal / 6)).toStringAsFixed(2))
+            : 0,
+      );
+    }
+
     // Determine next striker/non-striker purely from local rules:
     //   - Odd batsman runs → rotate
     //   - Wicket → new batsman will be picked, keep non-striker
@@ -483,14 +546,16 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     }
 
     final localInn = Innings.copyWith(inn,
-      totalRuns:          newTotalRuns,
-      totalBalls:         newTotalBalls,
-      totalWickets:       newTotalWickets,
-      currentStrikerId:   localStriker,
+      totalRuns:           newTotalRuns,
+      totalBalls:          newTotalBalls,
+      totalWickets:        newTotalWickets,
+      currentStrikerId:    localStriker,
       currentNonStrikerId: localNonStriker,
-      clearStriker:       clearS,
-      clearNonStriker:    clearNS,
-      deliveries:         newDeliveries,
+      clearStriker:        clearS,
+      clearNonStriker:     clearNS,
+      deliveries:          newDeliveries,
+      batsmanStats:        newBatsmanStats,
+      bowlerStats:         newBowlerStats,
     );
     setState(() { _innings = localInn; _rawBallCount++; });
 
@@ -1496,13 +1561,25 @@ class _InningsBreakSheet extends StatelessWidget {
   }
 }
 
-class _MatchResultScreen extends StatelessWidget {
+class _MatchResultScreen extends StatefulWidget {
   final String matchId, result;
   final Innings? innings1, innings2;
   final Team? team1, team2;
 
   const _MatchResultScreen({required this.matchId, required this.result,
     this.innings1, this.innings2, this.team1, this.team2});
+
+  @override State<_MatchResultScreen> createState() => _MatchResultScreenState();
+}
+
+class _MatchResultScreenState extends State<_MatchResultScreen> {
+  String? _motmPlayerId;
+  bool    _motmSaved = false;
+
+  Innings?  get innings1 => widget.innings1;
+  Innings?  get innings2 => widget.innings2;
+  Team?     get team1    => widget.team1;
+  Team?     get team2    => widget.team2;
 
   String _teamName(String? id) {
     if (id == null) return '—';
@@ -1511,9 +1588,52 @@ class _MatchResultScreen extends StatelessWidget {
     return '—';
   }
 
+  String _playerName(String? id) {
+    if (id == null) return '—';
+    final all = [...(team1?.players ?? []), ...(team2?.players ?? [])];
+    return all.firstWhere((p) => p.id == id,
+        orElse: () => Player(id: id, teamId: '', name: id, shortName: id)).name;
+  }
+
+  // Top performers from both innings — suggest top 3
+  List<({String id, String name, String perf, int score})> get _suggestions {
+    final list = <({String id, String name, String perf, int score})>[];
+    for (final inn in [innings1, innings2]) {
+      if (inn == null) continue;
+      // Top batsman
+      inn.batsmanStats.forEach((id, s) {
+        if (s.runsScored > 0) {
+          list.add((id: id, name: _playerName(id),
+            perf: '${s.runsScored} runs (${s.ballsFaced}b)', score: s.runsScored * 10));
+        }
+      });
+      // Top bowler
+      inn.bowlerStats.forEach((id, s) {
+        if (s.wicketsTaken > 0) {
+          list.add((id: id, name: _playerName(id),
+            perf: '${s.wicketsTaken}/${s.runsConceded} (${s.oversBowled} ov)',
+            score: s.wicketsTaken * 25 + (30 - s.runsConceded).clamp(0, 30)));
+        }
+      });
+    }
+    list.sort((a, b) => b.score.compareTo(a.score));
+    // Deduplicate by id, keep top 3
+    final seen = <String>{};
+    return list.where((e) => seen.add(e.id)).take(3).toList();
+  }
+
+  Future<void> _saveMotm(String playerId) async {
+    setState(() => _motmPlayerId = playerId);
+    try {
+      await MatchApi.update(widget.matchId, {'manOfTheMatch': playerId});
+      setState(() => _motmSaved = true);
+    } catch (_) {}
+  }
+
   @override Widget build(BuildContext context) {
-    final isWin = result.contains('won');
-    final isTie = result.contains('tied');
+    final isWin = widget.result.contains('won');
+    final isTie = widget.result.contains('tied');
+    final suggestions = _suggestions;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(child: Column(children: [
@@ -1525,7 +1645,7 @@ class _MatchResultScreen extends StatelessWidget {
           child: Column(children: [
             Text(isWin ? '🏆' : isTie ? '🤝' : '🏏', style: const TextStyle(fontSize: 64)),
             const SizedBox(height: 12),
-            Text(result.replaceAll('🏆 ', '').replaceAll('🤝 ', ''), textAlign: TextAlign.center,
+            Text(widget.result.replaceAll('🏆 ', '').replaceAll('🤝 ', ''), textAlign: TextAlign.center,
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800,
                 color: isWin ? AppColors.accent : isTie ? AppColors.ball : AppColors.text)),
           ]),
@@ -1533,11 +1653,77 @@ class _MatchResultScreen extends StatelessWidget {
         Expanded(child: ListView(padding: const EdgeInsets.all(16), children: [
           if (innings1 != null) _InningsSummaryCard(innings: innings1!, teamName: _teamName(innings1!.battingTeamId), label: '1st Innings'),
           if (innings2 != null) _InningsSummaryCard(innings: innings2!, teamName: _teamName(innings2!.battingTeamId), label: '2nd Innings'),
+          const SizedBox(height: 8),
+
+          // ── Man of the Match ──────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.bgCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _motmPlayerId != null ? AppColors.ball : AppColors.border)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Text('⭐', style: TextStyle(fontSize: 20)),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Man of the Match',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.text))),
+                if (_motmSaved) const Icon(Icons.check_circle, color: Colors.green, size: 18),
+              ]),
+              if (_motmPlayerId != null) ...[
+                const SizedBox(height: 6),
+                Text(_playerName(_motmPlayerId),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.ball)),
+              ],
+              if (!_motmSaved) ...[
+                const SizedBox(height: 12),
+                if (suggestions.isEmpty)
+                  const Text('No stats available — score some balls first',
+                    style: TextStyle(color: AppColors.text2, fontSize: 13))
+                else ...[
+                  const Text('SUGGESTED', style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w700,
+                    color: AppColors.text2, letterSpacing: 1.2)),
+                  const SizedBox(height: 8),
+                  ...suggestions.map((s) => GestureDetector(
+                    onTap: () => _saveMotm(s.id),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _motmPlayerId == s.id ? AppColors.ball.withOpacity(0.1) : AppColors.bgElevated,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _motmPlayerId == s.id ? AppColors.ball : AppColors.border,
+                          width: _motmPlayerId == s.id ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Row(children: [
+                        const Text('🏏', style: TextStyle(fontSize: 18)),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(s.name, style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.text)),
+                          Text(s.perf, style: const TextStyle(fontSize: 12, color: AppColors.text2)),
+                        ])),
+                        if (_motmPlayerId == s.id)
+                          const Icon(Icons.star, color: AppColors.ball, size: 20),
+                      ]),
+                    ),
+                  )),
+                ],
+                const SizedBox(height: 4),
+                const Text('Tap to select · saved against the match',
+                  style: TextStyle(fontSize: 11, color: AppColors.text3)),
+              ],
+            ]),
+          ),
+          const SizedBox(height: 8),
         ])),
         Padding(padding: const EdgeInsets.all(16), child: Column(children: [
           SizedBox(width: double.infinity, height: 52,
             child: ElevatedButton.icon(
-              onPressed: () => context.go('/scorecard/$matchId'),
+              onPressed: () => context.go('/scorecard/${widget.matchId}'),
               icon: const Icon(Icons.assignment_outlined, size: 18),
               label: const Text('Full scorecard', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)))),
           const SizedBox(height: 10),

@@ -251,6 +251,8 @@ class Innings {
     int? totalRuns, int? totalBalls, int? totalWickets,
     bool clearStriker = false,
     bool clearNonStriker = false,
+    Map<String, BatsmanStats>? batsmanStats,
+    Map<String, BowlerStats>?  bowlerStats,
   }) => Innings(
     id: inn.id, battingTeamId: inn.battingTeamId, bowlingTeamId: inn.bowlingTeamId,
     inningsNumber: inn.inningsNumber,
@@ -261,7 +263,8 @@ class Innings {
     currentStrikerId:    clearStriker    ? null : (currentStrikerId    ?? inn.currentStrikerId),
     currentNonStrikerId: clearNonStriker ? null : (currentNonStrikerId ?? inn.currentNonStrikerId),
     currentBowlerId:     currentBowlerId ?? inn.currentBowlerId,
-    batsmanStats: inn.batsmanStats, bowlerStats: inn.bowlerStats,
+    batsmanStats: batsmanStats ?? inn.batsmanStats,
+    bowlerStats:  bowlerStats  ?? inn.bowlerStats,
     deliveries:   deliveries ?? inn.deliveries,
     fallOfWickets: inn.fallOfWickets, battingOrder: inn.battingOrder,
     currentRunRate: inn.currentRunRate, requiredRunRate: inn.requiredRunRate,
