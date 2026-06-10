@@ -49,14 +49,16 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final t = await TournamentApi.get(widget.tournamentId);
-      final teamData = (t.teams ?? []).firstWhere((team) => team.id == widget.teamId,
-        orElse: () => Team(id: widget.teamId, name: 'Team', shortName: ''));
-      final players = await PlayerApi.list(widget.teamId).catchError((_) => <Player>[]);
+      // Fetch tournament (for createdBy) and team (for captainId/captainEmail) in parallel
+      final results = await Future.wait([
+        TournamentApi.get(widget.tournamentId),
+        TournamentApi.getTeam(widget.tournamentId, widget.teamId),
+        PlayerApi.list(widget.teamId).catchError((_) => <Player>[]),
+      ]);
       if (mounted) setState(() {
-        _team = teamData;
-        _tournamentCreatedBy = t.createdBy;
-        _players = players;
+        _tournamentCreatedBy = (results[0] as Tournament).createdBy;
+        _team               = results[1] as Team;
+        _players            = results[2] as List<Player>;
         _loading = false;
       });
     } catch (_) {
@@ -235,8 +237,92 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
     }
   }
 
+  bool _canManageRoster(AuthUser? user) {
+    if (user == null) return false;
+    if (_team != null && user.isTeamCaptainOf(_team!)) return true;
+    return user.isAdmin || user.canManage(_tournamentCreatedBy) ||
+        _ownedIds.contains(widget.tournamentId);
+  }
+
+  bool _canAssignCaptain(AuthUser? user) {
+    if (user == null) return false;
+    return user.isAdmin || user.canManage(_tournamentCreatedBy) ||
+        _ownedIds.contains(widget.tournamentId);
+  }
+
+  bool _canRequestCaptain(AuthUser? user) {
+    if (user == null) return false;
+    if (_canManageRoster(user)) return false; // already has access
+    // No captain assigned yet (neither by ID nor email)
+    return _team?.captainId == null && _team?.captainEmail == null;
+  }
+
+  Future<void> _requestCaptainRole(AuthUser user) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text('Request Captain Role', style: TextStyle(
+          color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w700)),
+        content: Text(
+          'Request to become captain of ${_team?.name ?? 'this team'}?\n\n'
+          'The league organizer will be notified and can approve or reject your request.',
+          style: const TextStyle(color: AppColors.text2, fontSize: 13)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.text2))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Send Request')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await TournamentApi.requestCaptain(widget.tournamentId, widget.teamId, {
+        'requestedBy':    user.sub,
+        'requesterName':  user.name,
+        'requesterEmail': user.email,
+        'teamName':       _team?.name ?? '',
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Request sent — the league organizer will review it')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _showOrganizerCaptainSheet(AuthUser user) async {
+    List<CaptainRequest> pending;
+    try {
+      pending = await TournamentApi.getCaptainRequests(widget.tournamentId);
+    } catch (_) {
+      pending = [];
+    }
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _OrganizerCaptainSheet(
+        tournamentId: widget.tournamentId,
+        teamId: widget.teamId,
+        teamName: _team?.name ?? 'Team',
+        currentCaptainId: _team?.captainId,
+        pendingRequests: pending.where((r) => r.teamId == widget.teamId).toList(),
+        onDone: () async {
+          await _load();
+        },
+      ),
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final user = ref.watch(authProvider).value;
+    final canManage = _canManageRoster(user);
+    final canAssign = _canAssignCaptain(user);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -246,15 +332,32 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
           onPressed: () => context.pop(),
         ),
         title: Column(children: [
-          Text(_team?.name ?? 'Team'),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(_team?.name ?? 'Team'),
+            if (_team?.captainId != null || _team?.captainEmail != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(6)),
+                child: const Text('C', style: TextStyle(
+                  color: AppColors.accent, fontSize: 10, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ]),
           Text('${_players.length} players', style: const TextStyle(
             fontSize: 12, color: AppColors.text2, fontWeight: FontWeight.w400)),
         ]),
         actions: [
-          // CSV template + import — visible to tournament creator/admin only
-          if (user != null &&
-              (user.isAdmin || user.canManage(_tournamentCreatedBy) ||
-               _ownedIds.contains(widget.tournamentId)))
+          if (canAssign)
+            IconButton(
+              icon: const Icon(Icons.manage_accounts_outlined, color: AppColors.text2),
+              tooltip: 'Captain Management',
+              onPressed: () => _showOrganizerCaptainSheet(user!),
+            ),
+          // CSV template + import — visible to roster managers only
+          if (canManage)
             _importing
               ? const Padding(
                   padding: EdgeInsets.all(12),
@@ -282,7 +385,7 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
                     ])),
                   ],
                 ),
-          if (user != null)
+          if (canManage)
             IconButton(
               icon: Icon(_showAdd ? Icons.close : Icons.person_add_outlined,
                 color: AppColors.accent),
@@ -296,7 +399,38 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
             onRefresh: _load,
             color: AppColors.accent,
             child: ListView(children: [
-              if (_showAdd && user != null) _buildAddForm(),
+              if (_showAdd && canManage) _buildAddForm(),
+
+              // Request captain banner (shown when no captain assigned and user is eligible)
+              if (!canManage && _canRequestCaptain(user) && !_loading)
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.accent.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.accent.withOpacity(0.3)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.shield_outlined, color: AppColors.accent, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('No captain assigned yet',
+                        style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                      const Text('Request to become this team\'s captain',
+                        style: TextStyle(color: AppColors.text2, fontSize: 12)),
+                    ])),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: user != null ? () => _requestCaptainRole(user) : null,
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.accent.withOpacity(0.12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                      child: const Text('Request', style: TextStyle(
+                        color: AppColors.accent, fontWeight: FontWeight.w700, fontSize: 12)),
+                    ),
+                  ]),
+                ),
 
               if (_players.isEmpty && !_showAdd)
                 Padding(padding: const EdgeInsets.all(40),
@@ -308,7 +442,7 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
                     const SizedBox(height: 6),
                     const Text('Tap + to add players',
                       style: TextStyle(color: AppColors.text2, fontSize: 13)),
-                    if (user != null) ...[
+                    if (canManage) ...[
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
                         onPressed: () => setState(() => _showAdd = true),
@@ -325,18 +459,15 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
                         style: OutlinedButton.styleFrom(foregroundColor: AppColors.accent,
                           side: const BorderSide(color: AppColors.accent)),
                       ),
-                      if (user.isAdmin || user.canManage(_tournamentCreatedBy) ||
-                          _ownedIds.contains(widget.tournamentId)) ...[
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          onPressed: _importing ? null : _importCsv,
-                          icon: const Icon(Icons.upload_file_outlined, size: 16),
-                          label: const Text('Import from CSV'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.text2,
-                            side: const BorderSide(color: AppColors.border)),
-                        ),
-                      ],
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _importing ? null : _importCsv,
+                        icon: const Icon(Icons.upload_file_outlined, size: 16),
+                        label: const Text('Import from CSV'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.text2,
+                          side: const BorderSide(color: AppColors.border)),
+                      ),
                     ],
                   ])),
 
@@ -598,6 +729,239 @@ class _PlayerSearchSheetState extends State<_PlayerSearchSheet> {
     );
   }
 }
+
+
+// ── Organizer Captain Management Sheet ───────────────────────
+class _OrganizerCaptainSheet extends StatefulWidget {
+  final String tournamentId, teamId, teamName;
+  final String? currentCaptainId;
+  final List<CaptainRequest> pendingRequests;
+  final VoidCallback onDone;
+  const _OrganizerCaptainSheet({
+    required this.tournamentId, required this.teamId, required this.teamName,
+    this.currentCaptainId, required this.pendingRequests, required this.onDone,
+  });
+  @override State<_OrganizerCaptainSheet> createState() => _OrganizerCaptainSheetState();
+}
+
+class _OrganizerCaptainSheetState extends State<_OrganizerCaptainSheet>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabs;
+  final _emailCtrl = TextEditingController();
+  bool _assigning = false;
+  String? _assignError;
+  Map<String, bool> _responding = {};
+
+  @override void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this,
+      initialIndex: widget.pendingRequests.isNotEmpty ? 0 : 1);
+  }
+  @override void dispose() { _tabs.dispose(); _emailCtrl.dispose(); super.dispose(); }
+
+  Future<void> _respond(CaptainRequest req, String status) async {
+    setState(() => _responding[req.id] = true);
+    try {
+      await TournamentApi.respondToCaptainRequest(widget.tournamentId, req.id, status);
+      widget.onDone();
+      if (mounted) setState(() => _responding.remove(req.id));
+      if (mounted && status == 'approved') Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() => _responding.remove(req.id));
+    }
+  }
+
+  Future<void> _assignByEmail() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) return;
+    setState(() { _assigning = true; _assignError = null; });
+    try {
+      await TournamentApi.assignCaptainByEmail(widget.tournamentId, widget.teamId, email);
+      widget.onDone();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() { _assigning = false; _assignError = '$e'; });
+    }
+  }
+
+  Future<void> _removeCaptain() async {
+    setState(() { _assigning = true; _assignError = null; });
+    try {
+      await TournamentApi.updateTeam(widget.tournamentId, widget.teamId, {'captainId': null});
+      widget.onDone();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() { _assigning = false; _assignError = '$e'; });
+    }
+  }
+
+  @override Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.bgCard,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          Container(width: 40, height: 4,
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2))),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Captain Management', style: TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.text)),
+                Text(widget.teamName, style: const TextStyle(fontSize: 12, color: AppColors.text2)),
+              ])),
+              if (widget.currentCaptainId != null)
+                TextButton.icon(
+                  onPressed: _assigning ? null : _removeCaptain,
+                  icon: const Icon(Icons.person_remove_outlined, size: 15, color: AppColors.wicket),
+                  label: const Text('Remove', style: TextStyle(color: AppColors.wicket, fontSize: 12)),
+                ),
+            ]),
+          ),
+          TabBar(
+            controller: _tabs,
+            labelColor: AppColors.accent,
+            unselectedLabelColor: AppColors.text2,
+            indicatorColor: AppColors.accent,
+            dividerColor: AppColors.border,
+            tabs: [
+              Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Requests'),
+                if (widget.pendingRequests.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.wicket, borderRadius: BorderRadius.circular(10)),
+                    child: Text('${widget.pendingRequests.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                  ),
+                ],
+              ])),
+              const Tab(text: 'Assign by Email'),
+            ],
+          ),
+          Expanded(child: TabBarView(
+            controller: _tabs,
+            children: [
+              // ── Tab 0: Pending Requests
+              widget.pendingRequests.isEmpty
+                ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text('🛡️', style: TextStyle(fontSize: 36)),
+                    SizedBox(height: 10),
+                    Text('No pending requests', style: TextStyle(
+                      color: AppColors.text, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 4),
+                    Text('Users can request the captain role\nfrom the team roster screen',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.text2, fontSize: 13)),
+                  ]))
+                : ListView.separated(
+                    controller: controller,
+                    padding: const EdgeInsets.all(16),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemCount: widget.pendingRequests.length,
+                    itemBuilder: (_, i) {
+                      final req = widget.pendingRequests[i];
+                      final loading = _responding[req.id] == true;
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgElevated,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(children: [
+                          CircleAvatar(
+                            backgroundColor: AppColors.accent.withOpacity(0.1),
+                            radius: 20,
+                            child: Text(
+                              req.requesterName.isNotEmpty ? req.requesterName[0].toUpperCase() : '?',
+                              style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(req.requesterName, style: const TextStyle(
+                              color: AppColors.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                            Text(req.requesterEmail, style: const TextStyle(
+                              color: AppColors.text2, fontSize: 12)),
+                          ])),
+                          if (loading)
+                            const SizedBox(width: 20, height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent))
+                          else ...[
+                            IconButton(
+                              icon: const Icon(Icons.check_circle_outline, color: AppColors.accent, size: 26),
+                              tooltip: 'Approve',
+                              onPressed: () => _respond(req, 'approved'),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.cancel_outlined, color: AppColors.wicket, size: 26),
+                              tooltip: 'Reject',
+                              onPressed: () => _respond(req, 'rejected'),
+                            ),
+                          ],
+                        ]),
+                      );
+                    },
+                  ),
+
+              // ── Tab 1: Assign by Email
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Assign captain directly by email',
+                    style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w600, fontSize: 15)),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Enter the email address of the user you want to appoint as captain. '
+                    'They must already have an account in the app.',
+                    style: TextStyle(color: AppColors.text2, fontSize: 13)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    style: const TextStyle(color: AppColors.text),
+                    decoration: InputDecoration(
+                      labelText: 'Email address',
+                      hintText: 'captain@example.com',
+                      errorText: _assignError,
+                      prefixIcon: const Icon(Icons.email_outlined, color: AppColors.text2),
+                    ),
+                    onChanged: (_) => setState(() => _assignError = null),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _assigning ? null : _assignByEmail,
+                      style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                      child: _assigning
+                        ? const SizedBox(width: 20, height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textOnAcc))
+                        : const Text('Assign Captain', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          )),
+          SafeArea(child: TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: AppColors.text2)))),
+        ]),
+      ),
+    );
+  }
+}
+
 
 // Add teams getter to Tournament
 extension TournamentTeams on Tournament {

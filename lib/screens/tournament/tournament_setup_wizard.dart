@@ -19,6 +19,18 @@ class _WizardState {
   int    matchesPerDay   = 2;
   TimeOfDay startTime    = const TimeOfDay(hour: 9, minute: 0);
   List<Map<String, dynamic>> generatedFixtures = [];
+
+  // Custom format
+  int? customOvers;
+
+  /// Human-readable format label sent to the API.
+  /// For custom: "Custom-15" (with overs) or just "Custom".
+  String get formatValue {
+    if (format == 'Custom') {
+      return customOvers != null ? 'Custom-$customOvers' : 'Custom';
+    }
+    return format;
+  }
 }
 
 class TournamentSetupWizard extends ConsumerStatefulWidget {
@@ -28,94 +40,18 @@ class TournamentSetupWizard extends ConsumerStatefulWidget {
 
 class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
   final _state   = _WizardState();
-  int    _step   = 0; // 0=AI/Basics, 1=Schedule, 2=Teams, 3=Fixtures, 4=Done
+  int    _step   = 0; // 0=Basics, 1=Schedule, 2=Teams, 3=Fixtures, 4=Done
   bool   _aiLoading   = false;
   bool   _schedLoading = false;
   bool   _saving  = false;
   String? _error;
-  String? _aiSuccess;
 
-  final _aiCtrl   = TextEditingController();
   final _nameCtrl = TextEditingController();
 
   static const _steps = ['Basics', 'Schedule', 'Teams', 'Fixtures', 'Launch'];
 
   @override void dispose() {
-    _aiCtrl.dispose(); _nameCtrl.dispose(); super.dispose();
-  }
-
-  // ── AI: parse description ──────────────────────────────────
-  Future<void> _parseWithAI() async {
-    final desc = _aiCtrl.text.trim();
-    if (desc.isEmpty) return;
-    setState(() { _aiLoading = true; _error = null; _aiSuccess = null; });
-    try {
-      final result = await AiApi.parseTournamentDescription(desc);
-      final filled = <String>[];
-      setState(() {
-        if (result['name'] != null && (result['name'] as String).isNotEmpty) {
-          _state.name = result['name'] as String;
-          _nameCtrl.text = _state.name;
-          filled.add('name');
-        }
-        if (result['format'] != null) {
-          _state.format = result['format'] as String;
-          filled.add(_state.format);
-        }
-        if (result['tournamentType'] != null) {
-          _state.tournamentType = result['tournamentType'] as String;
-        }
-        if (result['numTeams'] != null) {
-          _state.numTeams = (result['numTeams'] as num).toInt();
-          filled.add('${_state.numTeams} teams');
-        }
-        if (result['teamNames'] is List) {
-          final names = (result['teamNames'] as List).map((n) => n.toString()).where((n) => n.isNotEmpty).toList();
-          if (names.isNotEmpty) _state.teamNames = names;
-        }
-        if (result['startDate'] != null) {
-          try {
-            _state.startDate = DateTime.parse(result['startDate'] as String);
-            filled.add('start date');
-          } catch (_) {}
-        }
-        if (result['playDays'] is List) {
-          final days = (result['playDays'] as List).map((d) => d.toString()).toSet();
-          if (days.isNotEmpty) {
-            _state.playDays = days;
-            filled.add(days.map((d) => d[0].toUpperCase() + d.substring(1)).join(' & '));
-          }
-        }
-        if (result['matchesPerDay'] != null) {
-          _state.matchesPerDay = (result['matchesPerDay'] as num).toInt();
-          filled.add('${_state.matchesPerDay}/day');
-        }
-        if (result['startTime'] != null) {
-          try {
-            final parts = (result['startTime'] as String).split(':');
-            _state.startTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-          } catch (_) {}
-        }
-
-        // Auto-generate a name if AI didn't provide one
-        if (_state.name.isEmpty) {
-          _state.name = '${_state.format} Tournament';
-          _nameCtrl.text = _state.name;
-        }
-
-        _aiSuccess = filled.isEmpty
-          ? 'Filled: format and schedule defaults'
-          : 'Filled: ${filled.join(', ')} — check below and tap Next';
-      });
-
-      // Always advance to next step after AI parse
-      _goToStep(1);
-
-    } catch (e) {
-      setState(() => _error = 'AI error: $e');
-    } finally {
-      setState(() => _aiLoading = false);
-    }
+    _nameCtrl.dispose(); super.dispose();
   }
 
   // ── AI: suggest team names ─────────────────────────────────
@@ -249,7 +185,7 @@ class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
       // 1. Create tournament
       final tournament = await TournamentApi.create({
         'name': _state.name.trim(),
-        'format': _state.format,
+        'format': _state.formatValue,
         'maxTeams': _state.numTeams,
         'status': 'upcoming',
         if (user != null) 'createdBy': user.sub,
@@ -311,7 +247,9 @@ class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
     }
   }
 
-  bool get _step0Valid => _state.name.trim().isNotEmpty;
+  bool get _step0Valid =>
+      _state.name.trim().isNotEmpty &&
+      (_state.format != 'Custom' || (_state.customOvers != null && _state.customOvers! >= 1));
   bool get _step1Valid => _state.startDate != null && _state.playDays.isNotEmpty;
   bool get _step2Valid => _state.numTeams >= 2;
   bool get _step3Valid => _state.generatedFixtures.isNotEmpty;
@@ -324,7 +262,7 @@ class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
           icon: const Icon(Icons.close, size: 22),
           onPressed: () => context.go('/tournaments'),
         ),
-        title: const Text('New Tournament'),
+        title: const Text('New League'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(40),
           child: _StepBar(steps: _steps, current: _step, onTap: (i) {
@@ -350,9 +288,12 @@ class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
 
   Widget _buildStep() {
     switch (_step) {
-      case 0: return _Step0Basics(state: _state, nameCtrl: _nameCtrl, aiCtrl: _aiCtrl,
-          aiLoading: _aiLoading, onParseAI: _parseWithAI, aiSuccess: _aiSuccess,
-          onChanged: () => setState(() {}));
+      case 0: return _Step0Basics(
+          state: _state,
+          nameCtrl: _nameCtrl,
+          onChanged: () => setState(() {}),
+          onOversChanged: (v) => setState(() => _state.customOvers = v),
+        );
       case 1: return _Step1Schedule(state: _state, onChanged: () => setState(() {}));
       case 2: return _Step2Teams(state: _state, aiLoading: _aiLoading,
           onSuggest: _suggestTeamNames, onChanged: () => setState(() {}));
@@ -457,18 +398,21 @@ class _StepBar extends StatelessWidget {
   }
 }
 
-// ── Step 0: Basics + AI prompt ────────────────────────────────
-class _Step0Basics extends StatelessWidget {
+// ── Step 0: Basics ────────────────────────────────────────────
+class _Step0Basics extends StatefulWidget {
   final _WizardState state;
-  final TextEditingController nameCtrl, aiCtrl;
-  final bool aiLoading;
-  final String? aiSuccess;
-  final VoidCallback onParseAI, onChanged;
-  const _Step0Basics({required this.state, required this.nameCtrl, required this.aiCtrl,
-    required this.aiLoading, required this.onParseAI, required this.onChanged,
-    this.aiSuccess});
+  final TextEditingController nameCtrl;
+  final VoidCallback onChanged;
+  final ValueChanged<int?> onOversChanged;
+  const _Step0Basics({
+    required this.state, required this.nameCtrl,
+    required this.onChanged, required this.onOversChanged,
+  });
+  @override State<_Step0Basics> createState() => _Step0BasicsState();
+}
 
-  static const _formats = ['T10', 'T20', 'ODI', 'Test', 'Gully'];
+class _Step0BasicsState extends State<_Step0Basics> {
+  static const _formats = ['T10', 'T20', 'ODI', 'Custom'];
   static const _types = [
     ('league',         '🏅 League only',          'All play all, ranked by points'),
     ('league_finals',  '🏆 League + Finals',       'League stage then top 4 → semis + final'),
@@ -476,88 +420,30 @@ class _Step0Basics extends StatelessWidget {
     ('group_knockout', '🌍 Group Stage + Knockout', 'Groups then top 2 per group advance'),
   ];
 
+  late final TextEditingController _oversCtrl;
+
+  @override void initState() {
+    super.initState();
+    _oversCtrl = TextEditingController(
+      text: widget.state.customOvers != null ? '${widget.state.customOvers}' : '');
+  }
+
+  @override void dispose() { _oversCtrl.dispose(); super.dispose(); }
+
+  int? get _overs => int.tryParse(_oversCtrl.text.trim());
+
   @override Widget build(BuildContext context) {
+    final state = widget.state;
     return ListView(padding: const EdgeInsets.all(20), children: [
-      // AI prompt
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [AppColors.accent.withOpacity(0.1), AppColors.bgCard]),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.accent.withOpacity(0.3)),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Text('✨', style: TextStyle(fontSize: 18)),
-            const SizedBox(width: 8),
-            const Text('Describe your tournament', style: TextStyle(
-              fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: AppColors.accent.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-              child: const Text('AI', style: TextStyle(color: AppColors.accent, fontSize: 11, fontWeight: FontWeight.w700)),
-            ),
-          ]),
-          const SizedBox(height: 4),
-          const Text('Let AI fill in the details automatically',
-            style: TextStyle(color: AppColors.text2, fontSize: 12)),
-          const SizedBox(height: 12),
-          TextField(
-            controller: aiCtrl,
-            style: const TextStyle(color: AppColors.text, fontSize: 14),
-            maxLines: 3,
-            decoration: InputDecoration(
-              hintText: 'e.g. "8 team T20 tournament in Bangalore, starting next Saturday, 2 games per weekend for 5 weeks"',
-              hintStyle: const TextStyle(color: AppColors.text3, fontSize: 13),
-              filled: true, fillColor: AppColors.bgElevated,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: aiLoading ? null : onParseAI,
-              icon: aiLoading
-                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textOnAcc))
-                : const Icon(Icons.auto_awesome, size: 16),
-              label: Text(aiLoading ? 'Setting up…' : 'Set up with AI'),
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 44),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-            ),
-          ),
-          if (aiSuccess != null) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.accent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.accent.withOpacity(0.4)),
-              ),
-              child: Row(children: [
-                const Text('✓ ', style: TextStyle(color: AppColors.accent, fontSize: 13)),
-                Expanded(child: Text(aiSuccess!,
-                  style: const TextStyle(color: AppColors.accent, fontSize: 12))),
-              ]),
-            ),
-          ],
-        ]),
-      ),
-
-      const SizedBox(height: 24),
-      const _SectionLabel('OR FILL MANUALLY'),
-      const SizedBox(height: 12),
-
       // Name
       TextField(
-        controller: nameCtrl,
+        controller: widget.nameCtrl,
         style: const TextStyle(color: AppColors.text),
         decoration: const InputDecoration(
-          labelText: 'Tournament name *',
-          hintText: 'e.g. Bangalore T20 Cup 2026',
+          labelText: 'League name *',
+          hintText: 'e.g. Livermore T20 League 2026',
         ),
-        onChanged: (v) { state.name = v; onChanged(); },
+        onChanged: (v) { state.name = v; widget.onChanged(); },
       ),
       const SizedBox(height: 20),
 
@@ -565,7 +451,7 @@ class _Step0Basics extends StatelessWidget {
       const Text('Format', style: TextStyle(color: AppColors.text2, fontSize: 13, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
       Wrap(spacing: 8, runSpacing: 8, children: _formats.map((f) => GestureDetector(
-        onTap: () { state.format = f; onChanged(); },
+        onTap: () { state.format = f; widget.onChanged(); setState(() {}); },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
@@ -579,13 +465,37 @@ class _Step0Basics extends StatelessWidget {
             color: state.format == f ? AppColors.accent : AppColors.text2, fontSize: 14)),
         ),
       )).toList()),
+
+      // Custom format — overs input (shown only when Custom is selected)
+      if (state.format == 'Custom') ...[
+        const SizedBox(height: 16),
+        TextField(
+          controller: _oversCtrl,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: const TextStyle(color: AppColors.text),
+          decoration: InputDecoration(
+            labelText: 'Number of overs *',
+            hintText: 'e.g. 15',
+            suffixText: 'overs',
+            errorText: _oversCtrl.text.isNotEmpty && (_overs == null || _overs! < 1)
+                ? 'Enter a valid number' : null,
+          ),
+          onChanged: (v) {
+            final parsed = int.tryParse(v.trim());
+            widget.onOversChanged(parsed);
+            setState(() {});
+            widget.onChanged();
+          },
+        ),
+      ],
       const SizedBox(height: 20),
 
       // Tournament type
       const Text('Tournament type', style: TextStyle(color: AppColors.text2, fontSize: 13, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
       ..._types.map((t) => GestureDetector(
-        onTap: () { state.tournamentType = t.$1; onChanged(); },
+        onTap: () { state.tournamentType = t.$1; widget.onChanged(); },
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(14),
@@ -987,7 +897,7 @@ class _Step4Launch extends StatelessWidget {
         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.text)),
       const SizedBox(height: 24),
 
-      _ReviewRow('Format', state.format),
+      _ReviewRow('Format', state.formatValue),
       _ReviewRow('Type', state.tournamentType.replaceAll('_', ' + ')),
       _ReviewRow('Teams', '${state.numTeams} teams'),
       _ReviewRow('Start date', dateStr),

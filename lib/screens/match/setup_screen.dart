@@ -46,7 +46,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   bool _tossBat    = true;
 
   static const _formats = [
-    ('T10', 10), ('T20', 20), ('ODI', 50), ('Test', 90), ('Gully', 5),
+    ('T10', 10), ('T20', 20), ('ODI', 50), ('Custom', 20),
   ];
 
   @override void initState() {
@@ -169,7 +169,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         'battingTeamId': battingTeamId, 'bowlingTeamId': bowlingTeamId,
       });
 
-      if (mounted) context.push('/scoring/${match.id}');
+      if (mounted) context.go('/scoring/${match.id}');
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {

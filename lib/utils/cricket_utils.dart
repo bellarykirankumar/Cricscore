@@ -8,15 +8,13 @@ class CricketUtils {
   CricketUtils._(); // prevent instantiation
 
   /// Max overs a single bowler may bowl in an innings.
-  /// Returns null for Test cricket (unlimited).
   static int? bowlerQuota(String format, int totalOvers) {
     switch (format) {
-      case 'Test': return null;
       case 'T20':  return 4;
       case 'T10':  return 2;
       case 'ODI':  return 10;
       default:
-        // Custom / Gully: 1 bowler per 5 overs, minimum 1
+        // Custom: 1 bowler per 5 overs, minimum 1
         return (totalOvers / 5).floor().clamp(1, 999);
     }
   }
