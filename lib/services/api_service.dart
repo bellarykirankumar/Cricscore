@@ -300,6 +300,58 @@ class TournamentApi {
         body: {'email': email});
   }
 
+  // ── League Registration ───────────────────────────────────────
+
+  static Future<LeagueRegistration> registerToLeague(
+      String tournamentId, Map<String, dynamic> payload) async {
+    final data = await _api._request(
+        'POST', '/tournaments/$tournamentId/registrations', body: payload);
+    return LeagueRegistration.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<List<LeagueRegistration>> getRegistrations(
+      String tournamentId, {String? status}) async {
+    final data = await _api._request(
+        'GET', '/tournaments/$tournamentId/registrations',
+        query: status != null ? {'status': status} : null) as List;
+    return data.map((j) => LeagueRegistration.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  static Future<LeagueRegistration?> getMyRegistration(
+      String tournamentId, String userId) async {
+    try {
+      final data = await _api._request(
+          'GET', '/tournaments/$tournamentId/registrations/$userId');
+      return LeagueRegistration.fromJson(data as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Team Join Requests ────────────────────────────────────────
+
+  static Future<JoinRequest> requestToJoinTeam(
+      String tournamentId, String teamId, Map<String, dynamic> payload) async {
+    final data = await _api._request(
+        'POST', '/tournaments/$tournamentId/teams/$teamId/join-requests', body: payload);
+    return JoinRequest.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<List<JoinRequest>> getJoinRequests(
+      String tournamentId, String teamId, {String? status}) async {
+    final data = await _api._request(
+        'GET', '/tournaments/$tournamentId/teams/$teamId/join-requests',
+        query: status != null ? {'status': status} : null) as List;
+    return data.map((j) => JoinRequest.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  static Future<void> respondToJoinRequest(
+      String tournamentId, String teamId, String requestId, String status) async {
+    await _api._request(
+        'PATCH', '/tournaments/$tournamentId/teams/$teamId/join-requests/$requestId',
+        body: {'status': status});
+  }
+
   static Future<void> genFixtures(String tournamentId) async {
     await _api._request('POST', '/tournaments/$tournamentId/fixtures');
   }

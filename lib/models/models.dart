@@ -69,6 +69,68 @@ class CaptainRequest {
   );
 }
 
+// ── League Registration ───────────────────────────────────────
+class LeagueRegistration {
+  final String id, tournamentId, userId, userName, userEmail;
+  final String preferredRole, bio;
+  final String status; // 'available' | 'on_team'
+  final int registeredAt;
+
+  const LeagueRegistration({
+    required this.id, required this.tournamentId,
+    required this.userId, required this.userName, required this.userEmail,
+    required this.preferredRole, required this.bio,
+    required this.status, required this.registeredAt,
+  });
+
+  bool get isAvailable => status == 'available';
+  bool get isOnTeam    => status == 'on_team';
+
+  factory LeagueRegistration.fromJson(Map<String, dynamic> j) => LeagueRegistration(
+    id:            j['id']            as String? ?? j['userId'] as String? ?? '',
+    tournamentId:  j['tournamentId']  as String? ?? '',
+    userId:        j['userId']        as String? ?? '',
+    userName:      j['userName']      as String? ?? '',
+    userEmail:     j['userEmail']     as String? ?? '',
+    preferredRole: j['preferredRole'] as String? ?? 'all_rounder',
+    bio:           j['bio']           as String? ?? '',
+    status:        j['status']        as String? ?? 'available',
+    registeredAt:  (j['registeredAt'] as num?)?.toInt() ?? 0,
+  );
+}
+
+// ── Team Join Request ─────────────────────────────────────────
+class JoinRequest {
+  final String id, tournamentId, teamId, teamName;
+  final String requestedBy, requesterName, requesterEmail, preferredRole;
+  final String status; // 'pending' | 'approved' | 'rejected'
+  final int requestedAt;
+
+  const JoinRequest({
+    required this.id, required this.tournamentId,
+    required this.teamId, required this.teamName,
+    required this.requestedBy, required this.requesterName,
+    required this.requesterEmail, required this.preferredRole,
+    required this.status, required this.requestedAt,
+  });
+
+  bool get isPending  => status == 'pending';
+  bool get isApproved => status == 'approved';
+
+  factory JoinRequest.fromJson(Map<String, dynamic> j) => JoinRequest(
+    id:             j['id']             as String? ?? '',
+    tournamentId:   j['tournamentId']   as String? ?? '',
+    teamId:         j['teamId']         as String? ?? '',
+    teamName:       j['teamName']       as String? ?? '',
+    requestedBy:    j['requestedBy']    as String? ?? '',
+    requesterName:  j['requesterName']  as String? ?? '',
+    requesterEmail: j['requesterEmail'] as String? ?? '',
+    preferredRole:  j['preferredRole']  as String? ?? 'all_rounder',
+    status:         j['status']         as String? ?? 'pending',
+    requestedAt:    (j['requestedAt']   as num?)?.toInt() ?? 0,
+  );
+}
+
 // ── App User (for search / captain assignment) ────────────────
 class AppUser {
   final String sub, name, email;

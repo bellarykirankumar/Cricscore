@@ -20,6 +20,7 @@ class _TournamentDetailState extends ConsumerState<TournamentDetailScreen>
   List<Team>         _teams       = [];
   List<Fixture>      _fixtures    = [];
   List<Map<String, dynamic>> _standings = [];
+  LeagueRegistration? _myRegistration;
   bool               _loading     = true;
   bool               _isLocalOwner = false;
 
@@ -53,17 +54,122 @@ class _TournamentDetailState extends ConsumerState<TournamentDetailScreen>
       final byStatus = await MatchApi.loadMatchStatusesForIds(matchIds);
       final fixturesOpen = TournamentApi.fixturesExcludingFinishedMatches(rawFixtures, byStatus);
       final isOwner = await AuthService.instance.isLocalOwner(widget.tournamentId);
+      final user = ref.read(authProvider).value;
+      LeagueRegistration? myReg;
+      if (user != null) {
+        myReg = await TournamentApi.getMyRegistration(widget.tournamentId, user.sub);
+      }
       setState(() {
-        _tournament   = results[0] as Tournament;
-        _teams        = teamsWithPlayers;
-        _fixtures     = fixturesOpen;
-        _standings    = results[3] as List<Map<String, dynamic>>;
-        _isLocalOwner = isOwner;
-        _loading      = false;
+        _tournament     = results[0] as Tournament;
+        _teams          = teamsWithPlayers;
+        _fixtures       = fixturesOpen;
+        _standings      = results[3] as List<Map<String, dynamic>>;
+        _isLocalOwner   = isOwner;
+        _myRegistration = myReg;
+        _loading        = false;
       });
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _showRegisterSheet(AuthUser user) {
+    String role = 'all_rounder';
+    final bioCtrl = TextEditingController();
+    bool saving = false;
+    const roles = [
+      ('all_rounder', 'All Rounder'),
+      ('batsman',     'Batsman'),
+      ('bowler',      'Bowler'),
+      ('wicket_keeper', 'Wicket Keeper'),
+    ];
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(0, 0, 0, MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppColors.bgCard,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2))),
+              const Text('Register for this League', style: TextStyle(
+                fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.text)),
+              const SizedBox(height: 6),
+              const Text('Let captains find you and add you to a team.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.text2, fontSize: 13)),
+              const SizedBox(height: 20),
+              // Role picker
+              const Align(alignment: Alignment.centerLeft, child: Text('Your preferred role',
+                style: TextStyle(color: AppColors.text2, fontSize: 12, fontWeight: FontWeight.w600))),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: roles.map((r) {
+                final selected = role == r.$1;
+                return GestureDetector(
+                  onTap: () => setSheet(() => role = r.$1),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: selected ? AppColors.accent : AppColors.bgElevated,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: selected ? AppColors.accent : AppColors.border)),
+                    child: Text(r.$2, style: TextStyle(
+                      color: selected ? AppColors.textOnAcc : AppColors.text2,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                      fontSize: 13)),
+                  ),
+                );
+              }).toList()),
+              const SizedBox(height: 14),
+              TextField(
+                controller: bioCtrl,
+                maxLines: 2,
+                style: const TextStyle(color: AppColors.text),
+                decoration: const InputDecoration(
+                  labelText: 'Short bio (optional)',
+                  hintText: 'e.g. Right-arm medium pace, 5 years exp.',
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(width: double.infinity, child: ElevatedButton(
+                onPressed: saving ? null : () async {
+                  setSheet(() => saving = true);
+                  try {
+                    final reg = await TournamentApi.registerToLeague(widget.tournamentId, {
+                      'userId': user.sub,
+                      'userName': user.name,
+                      'userEmail': user.email,
+                      'preferredRole': role,
+                      'bio': bioCtrl.text.trim(),
+                    });
+                    setState(() => _myRegistration = reg);
+                    if (mounted) {
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('✅ Registered! Captains can now find you.')));
+                    }
+                  } catch (e) {
+                    setSheet(() => saving = false);
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('$e')));
+                  }
+                },
+                child: saving
+                  ? const SizedBox(width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.textOnAcc))
+                  : const Text('Register'),
+              )),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 
   void _showManageScorers(Tournament t) {
@@ -197,7 +303,9 @@ class _TournamentDetailState extends ConsumerState<TournamentDetailScreen>
         ],
         body: TabBarView(controller: _tabs, children: [
           _TeamsTab(teams: _teams, tournamentId: widget.tournamentId, user: user,
-            onRefresh: _load, tournament: t, fixtures: _fixtures, isOwner: _isLocalOwner),
+            onRefresh: _load, tournament: t, fixtures: _fixtures, isOwner: _isLocalOwner,
+            myRegistration: _myRegistration,
+            onRegister: user != null ? () => _showRegisterSheet(user) : null),
           _FixturesTab(fixtures: _fixtures, teams: _teams, tournament: t, tournamentId: widget.tournamentId,
             user: user, onRefresh: _load, isOwner: _isLocalOwner),
           _StandingsTab(standings: _standings),
@@ -216,11 +324,15 @@ class _TeamsTab extends StatefulWidget {
   final Tournament tournament;
   final List<Fixture> fixtures;
   final bool isOwner;
+  final LeagueRegistration? myRegistration;
+  final VoidCallback? onRegister;
 
   const _TeamsTab({
     required this.teams, required this.tournamentId, required this.user,
     required this.onRefresh, required this.tournament, required this.fixtures,
     required this.isOwner,
+    this.myRegistration,
+    this.onRegister,
   });
 
   @override State<_TeamsTab> createState() => _TeamsTabState();
@@ -314,18 +426,46 @@ class _TeamsTabState extends State<_TeamsTab> {
             ),
           ])),
 
-        ...widget.teams.map((t) => AppCard(
-          onTap: () => context.push('/tournament/${widget.tournamentId}/team/${t.id}'),
-          child: Row(children: [
-            TeamAvatar(shortName: t.shortName),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(t.name, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
-              Text('${t.players.length} players', style: const TextStyle(color: AppColors.text2, fontSize: 13)),
-            ])),
-            const Text('Roster →', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w600)),
-          ]),
-        )),
+        // Registration banner for non-organizer logged-in users
+        if (widget.user != null &&
+            widget.user?.canManage(widget.tournament.createdBy) != true &&
+            !widget.isOwner)
+          _RegistrationBanner(
+            registration: widget.myRegistration,
+            onRegister: widget.onRegister,
+          ),
+
+        ...widget.teams.map((t) {
+          final isOrganizer = widget.user?.canManage(widget.tournament.createdBy) == true || widget.isOwner;
+          final reg = widget.myRegistration;
+          // Show join button: registered, available, not organizer, not captain of this team
+          final canRequestJoin = !isOrganizer &&
+              reg != null && reg.isAvailable &&
+              widget.user?.isTeamCaptainOf(t) != true;
+          return AppCard(
+            onTap: () => context.push('/tournament/${widget.tournamentId}/team/${t.id}'),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                TeamAvatar(shortName: t.shortName),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t.name, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
+                  Text('${t.players.length} players', style: const TextStyle(color: AppColors.text2, fontSize: 13)),
+                ])),
+                const Text('Roster →', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w600)),
+              ]),
+              if (canRequestJoin) ...[
+                const SizedBox(height: 10),
+                _JoinRequestButton(
+                  tournamentId: widget.tournamentId,
+                  team: t,
+                  user: widget.user!,
+                  registration: reg,
+                ),
+              ],
+            ]),
+          );
+        }),
 
         if (widget.teams.length >= 2 && widget.fixtures.isEmpty &&
             (widget.user?.canManage(widget.tournament.createdBy) == true || widget.isOwner))
@@ -351,6 +491,143 @@ class _TeamsTabState extends State<_TeamsTab> {
             ])),
         const SizedBox(height: 40),
       ]),
+    );
+  }
+}
+
+// ── Registration Banner ───────────────────────────────────────
+class _RegistrationBanner extends StatelessWidget {
+  final LeagueRegistration? registration;
+  final VoidCallback? onRegister;
+  const _RegistrationBanner({this.registration, this.onRegister});
+
+  @override Widget build(BuildContext context) {
+    if (registration != null) {
+      return Container(
+        margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: registration!.isOnTeam
+            ? AppColors.accent.withOpacity(0.08)
+            : AppColors.ball.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: registration!.isOnTeam
+            ? AppColors.accent.withOpacity(0.3)
+            : AppColors.ball.withOpacity(0.3)),
+        ),
+        child: Row(children: [
+          Icon(registration!.isOnTeam ? Icons.check_circle_outline : Icons.how_to_reg_outlined,
+            color: registration!.isOnTeam ? AppColors.accent : AppColors.ball, size: 18),
+          const SizedBox(width: 10),
+          Expanded(child: Text(
+            registration!.isOnTeam
+              ? 'You\'re registered and on a team.'
+              : 'You\'re registered — captains can find and add you.',
+            style: TextStyle(
+              color: registration!.isOnTeam ? AppColors.accent : AppColors.ball,
+              fontSize: 13, fontWeight: FontWeight.w600),
+          )),
+        ]),
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border)),
+      child: Row(children: [
+        const Icon(Icons.sports_cricket_outlined, color: AppColors.text2, size: 18),
+        const SizedBox(width: 10),
+        const Expanded(child: Text('Want to play in this league?',
+          style: TextStyle(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w600))),
+        TextButton(
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.accent,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          onPressed: onRegister,
+          child: const Text('Register', style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ]),
+    );
+  }
+}
+
+// ── Join Request Button ───────────────────────────────────────
+class _JoinRequestButton extends StatefulWidget {
+  final String tournamentId;
+  final Team team;
+  final AuthUser user;
+  final LeagueRegistration registration;
+  const _JoinRequestButton({
+    required this.tournamentId, required this.team,
+    required this.user, required this.registration,
+  });
+  @override State<_JoinRequestButton> createState() => _JoinRequestButtonState();
+}
+
+class _JoinRequestButtonState extends State<_JoinRequestButton> {
+  bool _requesting = false;
+  bool _requested  = false;
+
+  Future<void> _request() async {
+    setState(() => _requesting = true);
+    try {
+      await TournamentApi.requestToJoinTeam(widget.tournamentId, widget.team.id, {
+        'requestedBy':    widget.user.sub,
+        'requesterName':  widget.user.name,
+        'requesterEmail': widget.user.email,
+        'preferredRole':  widget.registration.preferredRole,
+        'teamName':       widget.team.name,
+      });
+      if (mounted) setState(() { _requested = true; _requesting = false; });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Join request sent to ${widget.team.name} ✓')));
+    } catch (e) {
+      if (mounted) setState(() => _requesting = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')));
+    }
+  }
+
+  @override Widget build(BuildContext context) {
+    if (_requested) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.accent.withOpacity(0.3))),
+        child: const Row(children: [
+          Icon(Icons.check_circle_outline, color: AppColors.accent, size: 15),
+          SizedBox(width: 6),
+          Text('Join request sent', style: TextStyle(
+            color: AppColors.accent, fontSize: 12, fontWeight: FontWeight.w600)),
+        ]),
+      );
+    }
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        icon: _requesting
+          ? const SizedBox(width: 14, height: 14,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.accent))
+          : const Icon(Icons.person_add_outlined, size: 16),
+        label: const Text('Request to join this team'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.accent,
+          side: const BorderSide(color: AppColors.accent),
+          minimumSize: const Size(double.infinity, 36),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        onPressed: _requesting ? null : _request,
+      ),
     );
   }
 }

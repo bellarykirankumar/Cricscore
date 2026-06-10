@@ -295,10 +295,17 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
 
   Future<void> _showOrganizerCaptainSheet(AuthUser user) async {
     List<CaptainRequest> pending;
+    List<JoinRequest> joinRequests;
     try {
       pending = await TournamentApi.getCaptainRequests(widget.tournamentId);
     } catch (_) {
       pending = [];
+    }
+    try {
+      joinRequests = await TournamentApi.getJoinRequests(
+          widget.tournamentId, widget.teamId, status: 'pending');
+    } catch (_) {
+      joinRequests = [];
     }
     if (!mounted) return;
 
@@ -312,9 +319,22 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
         teamName: _team?.name ?? 'Team',
         currentCaptainId: _team?.captainId,
         pendingRequests: pending.where((r) => r.teamId == widget.teamId).toList(),
-        onDone: () async {
-          await _load();
-        },
+        joinRequests: joinRequests,
+        onDone: () async { await _load(); },
+      ),
+    );
+  }
+
+  Future<void> _showLeaguePool() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _LeaguePoolSheet(
+        tournamentId: widget.tournamentId,
+        teamId: widget.teamId,
+        teamName: _team?.name ?? 'Team',
+        onAdded: () async { await _load(); },
       ),
     );
   }
@@ -458,6 +478,14 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
                         label: const Text('Search player registry'),
                         style: OutlinedButton.styleFrom(foregroundColor: AppColors.accent,
                           side: const BorderSide(color: AppColors.accent)),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _showLeaguePool,
+                        icon: const Icon(Icons.group_outlined, size: 16),
+                        label: const Text('Browse league player pool'),
+                        style: OutlinedButton.styleFrom(foregroundColor: AppColors.ball,
+                          side: const BorderSide(color: AppColors.ball)),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
@@ -736,10 +764,12 @@ class _OrganizerCaptainSheet extends StatefulWidget {
   final String tournamentId, teamId, teamName;
   final String? currentCaptainId;
   final List<CaptainRequest> pendingRequests;
+  final List<JoinRequest> joinRequests;
   final VoidCallback onDone;
   const _OrganizerCaptainSheet({
     required this.tournamentId, required this.teamId, required this.teamName,
-    this.currentCaptainId, required this.pendingRequests, required this.onDone,
+    this.currentCaptainId, required this.pendingRequests,
+    required this.joinRequests, required this.onDone,
   });
   @override State<_OrganizerCaptainSheet> createState() => _OrganizerCaptainSheetState();
 }
@@ -752,12 +782,33 @@ class _OrganizerCaptainSheetState extends State<_OrganizerCaptainSheet>
   String? _assignError;
   Map<String, bool> _responding = {};
 
+  Map<String, bool> _respondingJoin = {};
+
   @override void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this,
-      initialIndex: widget.pendingRequests.isNotEmpty ? 0 : 1);
+    _tabs = TabController(length: 3, vsync: this,
+      initialIndex: widget.joinRequests.isNotEmpty ? 0
+        : widget.pendingRequests.isNotEmpty ? 1 : 2);
   }
   @override void dispose() { _tabs.dispose(); _emailCtrl.dispose(); super.dispose(); }
+
+  Future<void> _respondJoin(JoinRequest req, String status) async {
+    setState(() => _respondingJoin[req.id] = true);
+    try {
+      await TournamentApi.respondToJoinRequest(
+          widget.tournamentId, widget.teamId, req.id, status);
+      widget.onDone();
+      if (mounted) setState(() => _respondingJoin.remove(req.id));
+      if (mounted && status == 'approved') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${req.requesterName} added to roster ✓')));
+      }
+    } catch (e) {
+      if (mounted) setState(() => _respondingJoin.remove(req.id));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')));
+    }
+  }
 
   Future<void> _respond(CaptainRequest req, String status) async {
     setState(() => _responding[req.id] = true);
@@ -832,13 +883,27 @@ class _OrganizerCaptainSheetState extends State<_OrganizerCaptainSheet>
             unselectedLabelColor: AppColors.text2,
             indicatorColor: AppColors.accent,
             dividerColor: AppColors.border,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 8),
             tabs: [
               Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
-                const Text('Requests'),
-                if (widget.pendingRequests.isNotEmpty) ...[
-                  const SizedBox(width: 6),
+                const Text('Join Req.', style: TextStyle(fontSize: 12)),
+                if (widget.joinRequests.isNotEmpty) ...[
+                  const SizedBox(width: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent, borderRadius: BorderRadius.circular(10)),
+                    child: Text('${widget.joinRequests.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+                  ),
+                ],
+              ])),
+              Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Captain', style: TextStyle(fontSize: 12)),
+                if (widget.pendingRequests.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
                       color: AppColors.wicket, borderRadius: BorderRadius.circular(10)),
                     child: Text('${widget.pendingRequests.length}',
@@ -846,13 +911,74 @@ class _OrganizerCaptainSheetState extends State<_OrganizerCaptainSheet>
                   ),
                 ],
               ])),
-              const Tab(text: 'Assign by Email'),
+              const Tab(child: Text('Assign', style: TextStyle(fontSize: 12))),
             ],
           ),
           Expanded(child: TabBarView(
             controller: _tabs,
             children: [
-              // ── Tab 0: Pending Requests
+              // ── Tab 0: Join Requests
+              widget.joinRequests.isEmpty
+                ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text('🙋', style: TextStyle(fontSize: 36)),
+                    SizedBox(height: 10),
+                    Text('No join requests yet', style: TextStyle(
+                      color: AppColors.text, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 4),
+                    Text('Players registered for the league\ncan request to join this team',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.text2, fontSize: 13)),
+                  ]))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemCount: widget.joinRequests.length,
+                    itemBuilder: (_, i) {
+                      final req = widget.joinRequests[i];
+                      final loading = _respondingJoin[req.id] == true;
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgElevated,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(children: [
+                          CircleAvatar(
+                            backgroundColor: AppColors.ball.withOpacity(0.12),
+                            radius: 20,
+                            child: Text(
+                              req.requesterName.isNotEmpty ? req.requesterName[0].toUpperCase() : '?',
+                              style: const TextStyle(color: AppColors.ball, fontWeight: FontWeight.w700)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(req.requesterName, style: const TextStyle(
+                              color: AppColors.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                            Text(req.preferredRole.replaceAll('_', ' '), style: const TextStyle(
+                              color: AppColors.text2, fontSize: 12)),
+                          ])),
+                          if (loading)
+                            const SizedBox(width: 20, height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent))
+                          else ...[
+                            IconButton(
+                              icon: const Icon(Icons.check_circle_outline, color: AppColors.accent, size: 26),
+                              tooltip: 'Approve',
+                              onPressed: () => _respondJoin(req, 'approved'),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.cancel_outlined, color: AppColors.wicket, size: 26),
+                              tooltip: 'Reject',
+                              onPressed: () => _respondJoin(req, 'rejected'),
+                            ),
+                          ],
+                        ]),
+                      );
+                    },
+                  ),
+
+              // ── Tab 1: Captain Requests
               widget.pendingRequests.isEmpty
                 ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Text('🛡️', style: TextStyle(fontSize: 36)),
@@ -914,7 +1040,7 @@ class _OrganizerCaptainSheetState extends State<_OrganizerCaptainSheet>
                     },
                   ),
 
-              // ── Tab 1: Assign by Email
+              // ── Tab 2: Assign by Email
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -966,4 +1092,168 @@ class _OrganizerCaptainSheetState extends State<_OrganizerCaptainSheet>
 // Add teams getter to Tournament
 extension TournamentTeams on Tournament {
   List<Team>? get teams => null; // Loaded separately via API
+}
+
+// ── League Pool Sheet ─────────────────────────────────────────
+// Captain browses all registered-but-available players and adds them directly
+class _LeaguePoolSheet extends StatefulWidget {
+  final String tournamentId, teamId, teamName;
+  final VoidCallback onAdded;
+  const _LeaguePoolSheet({
+    required this.tournamentId, required this.teamId,
+    required this.teamName, required this.onAdded,
+  });
+  @override State<_LeaguePoolSheet> createState() => _LeaguePoolSheetState();
+}
+
+class _LeaguePoolSheetState extends State<_LeaguePoolSheet> {
+  List<LeagueRegistration> _pool = [];
+  bool _loading = true;
+  Set<String> _adding = {};
+
+  @override void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final regs = await TournamentApi.getRegistrations(
+          widget.tournamentId, status: 'available');
+      if (mounted) setState(() { _pool = regs; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _addToTeam(LeagueRegistration reg) async {
+    setState(() => _adding.add(reg.userId));
+    try {
+      await PlayerApi.create({
+        'teamId':       widget.teamId,
+        'name':         reg.userName.isNotEmpty ? reg.userName : reg.userEmail,
+        'role':         reg.preferredRole,
+        'battingStyle': 'right_hand',
+        'userId':       reg.userId,
+        'userEmail':    reg.userEmail,
+      });
+      widget.onAdded();
+      if (mounted) {
+        setState(() {
+          _adding.remove(reg.userId);
+          _pool.removeWhere((r) => r.userId == reg.userId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${reg.userName} added to ${widget.teamName} ✓')));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _adding.remove(reg.userId));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  @override Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      maxChildSize: 0.92,
+      minChildSize: 0.4,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.bgCard,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        child: Column(children: [
+          Container(width: 40, height: 4, margin: const EdgeInsets.only(top: 12, bottom: 12),
+            decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2))),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4), child:
+            Row(children: [
+              const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('League Player Pool', style: TextStyle(
+                  fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.text)),
+                SizedBox(height: 2),
+                Text('Players registered for this league without a team',
+                  style: TextStyle(color: AppColors.text2, fontSize: 12)),
+              ])),
+              IconButton(
+                icon: const Icon(Icons.refresh_outlined, color: AppColors.text2),
+                onPressed: _load,
+              ),
+            ]),
+          ),
+          const Divider(color: AppColors.border, height: 1),
+          Expanded(child: _loading
+            ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
+            : _pool.isEmpty
+              ? const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('👥', style: TextStyle(fontSize: 36)),
+                  SizedBox(height: 10),
+                  Text('No available players', style: TextStyle(
+                    color: AppColors.text, fontWeight: FontWeight.w600)),
+                  SizedBox(height: 4),
+                  Text('Players join the pool by registering\nfor this league',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.text2, fontSize: 13)),
+                ]))
+              : ListView.separated(
+                  controller: controller,
+                  padding: const EdgeInsets.all(16),
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemCount: _pool.length,
+                  itemBuilder: (_, i) {
+                    final reg = _pool[i];
+                    final isAdding = _adding.contains(reg.userId);
+                    return Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.bgElevated,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border)),
+                      child: Row(children: [
+                        CircleAvatar(
+                          backgroundColor: AppColors.ball.withOpacity(0.12),
+                          radius: 22,
+                          child: Text(
+                            reg.userName.isNotEmpty ? reg.userName[0].toUpperCase() : '?',
+                            style: const TextStyle(color: AppColors.ball, fontWeight: FontWeight.w700, fontSize: 16)),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(reg.userName.isNotEmpty ? reg.userName : reg.userEmail,
+                            style: const TextStyle(
+                              color: AppColors.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                          Text(reg.preferredRole.replaceAll('_', ' '),
+                            style: const TextStyle(color: AppColors.text2, fontSize: 12)),
+                          if (reg.bio.isNotEmpty)
+                            Text(reg.bio, maxLines: 1, overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: AppColors.text2, fontSize: 11)),
+                        ])),
+                        const SizedBox(width: 8),
+                        isAdding
+                          ? const SizedBox(width: 20, height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent))
+                          : TextButton(
+                              style: TextButton.styleFrom(
+                                backgroundColor: AppColors.accent.withOpacity(0.1),
+                                foregroundColor: AppColors.accent,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => _addToTeam(reg),
+                              child: const Text('Add', style: TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                      ]),
+                    );
+                  },
+                ),
+          ),
+          SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close', style: TextStyle(color: AppColors.text2)),
+            ),
+          )),
+        ]),
+      ),
+    );
+  }
 }
