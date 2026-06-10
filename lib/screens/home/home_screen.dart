@@ -227,7 +227,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               _TeamsTab(tours: _tours, onRefresh: _load),
               // Hidden camera tab — kept alive in IndexedStack so buffering
               // continues while user scores. Accessible from drawer.
-              const CameraBufferScreen(),
+              CameraBufferScreen(onBack: () => setState(() => _selectedIndex = 0)),
             ],
           ),
       bottomNavigationBar: BottomNavigationBar(
@@ -252,7 +252,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.emoji_events_outlined),
             activeIcon: Icon(Icons.emoji_events),
-            label: 'Tournaments',
+            label: 'Leagues',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.group_outlined),
@@ -348,7 +348,7 @@ class _WelcomeCard extends StatelessWidget {
   @override Widget build(BuildContext context) {
     const features = [
       ('🏏', 'Ball-by-ball scoring', 'Live AI commentary on every delivery'),
-      ('🏆', 'Tournaments', 'Create leagues, knockouts & round-robins'),
+      ('🏆', 'Leagues', 'Create leagues, knockouts & round-robins'),
       ('👥', 'Team management', 'Rosters, player stats & country registry'),
       ('📋', 'Scoring Sheet', 'Quick tally without any setup — open from the menu'),
       ('🤖', 'AI Support', 'Ask anything about the app — instant answers'),
@@ -636,7 +636,7 @@ class _HomeTab extends StatelessWidget {
 
         // Active tournaments
         if (tours.isNotEmpty) ...[
-          const SectionHeader(title: 'Tournaments'),
+          const SectionHeader(title: 'Leagues'),
           ...tours.map((t) => _StripCard(
             stripColor: t.isActive ? AppColors.accent : AppColors.ball,
             stripLabel: t.isActive ? 'ACTIVE' : 'SOON',
@@ -791,7 +791,7 @@ class _TournamentsTab extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: () => context.push('/tournaments'),
               icon: const Icon(Icons.add, size: 18),
-              label: const Text('Manage tournaments'),
+              label: const Text('Create League'),
             ),
           ),
         const SizedBox(height: 8),
@@ -819,7 +819,7 @@ class _TournamentsTab extends StatelessWidget {
               Text('No tournaments yet', style: TextStyle(
                 color: AppColors.text, fontWeight: FontWeight.w700)),
               SizedBox(height: 6),
-              Text('Create one from the Tournaments screen',
+              Text('Create one from the Leagues screen',
                 style: TextStyle(color: AppColors.text2, fontSize: 13)),
             ]),
           ),

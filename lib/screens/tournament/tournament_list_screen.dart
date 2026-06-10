@@ -113,7 +113,7 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
-        title: const Text('Tournaments'),
+        title: const Text('Leagues'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, size: 20),
           onPressed: () => context.go('/'),
@@ -200,13 +200,13 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
     return AppCard(
       color: AppColors.bgCard,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Create tournament', style: TextStyle(
+        const Text('Create league', style: TextStyle(
           fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 16)),
         const SizedBox(height: 12),
         TextField(
           controller: _nameCtrl,
           style: const TextStyle(color: AppColors.text),
-          decoration: const InputDecoration(labelText: 'Tournament name',
+          decoration: const InputDecoration(labelText: 'League name',
             hintText: 'e.g. Summer League 2025'),
         ),
         const SizedBox(height: 10),
@@ -219,7 +219,7 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
               dropdownColor: AppColors.bgElevated,
               style: const TextStyle(color: AppColors.text),
               decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
-              items: ['T10','T20','ODI','Test','Gully'].map((f) =>
+              items: ['T10','T20','ODI','Custom'].map((f) =>
                 DropdownMenuItem(value: f, child: Text(f))).toList(),
               onChanged: (v) => setState(() => _format = v ?? _format),
             ),

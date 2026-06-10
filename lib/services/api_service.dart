@@ -63,6 +63,9 @@ class ApiService {
       case 'PUT':
         res = await http.put(uri, headers: headers, body: jsonEncode(body ?? {}));
         break;
+      case 'PATCH':
+        res = await http.patch(uri, headers: headers, body: jsonEncode(body ?? {}));
+        break;
       case 'DELETE':
         res = await http.delete(uri, headers: headers);
         break;
@@ -159,6 +162,28 @@ class MatchApi {
     );
   }
 
+  /// Persist current striker / non-striker / bowler without recording a delivery.
+  /// Fire-and-forget safe — call after every picker change or swap-ends.
+  static Future<void> patchInningsState(
+    String matchId,
+    int inningsNum, {
+    String? currentStrikerId,
+    String? currentNonStrikerId,
+    String? currentBowlerId,
+    String? dismissedPlayerId,  // run-out victim fix
+    String? clearedPlayerId,    // previously wrongly-marked isOut player
+  }) async {
+    final body = <String, dynamic>{
+      if (currentStrikerId    != null) 'currentStrikerId':    currentStrikerId,
+      if (currentNonStrikerId != null) 'currentNonStrikerId': currentNonStrikerId,
+      if (currentBowlerId     != null) 'currentBowlerId':     currentBowlerId,
+      if (dismissedPlayerId   != null) 'dismissedPlayerId':   dismissedPlayerId,
+      if (clearedPlayerId     != null) 'clearedPlayerId':     clearedPlayerId,
+    };
+    if (body.isEmpty) return;
+    await _api._request('PATCH', '/matches/$matchId/innings/$inningsNum', body: body);
+  }
+
   /// Backend may use different strings when a game is over.
   static bool isFinishedMatchStatus(String? status) {
     if (status == null || status.isEmpty) return false;
@@ -236,6 +261,43 @@ class TournamentApi {
       'POST', '/tournaments/$tournamentId/teams', body: payload
     );
     return Team.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<Team> getTeam(String tournamentId, String teamId) async {
+    final data = await _api._request('GET', '/tournaments/$tournamentId/teams/$teamId');
+    return Team.fromJson(data as Map<String, dynamic>);
+  }
+
+  static Future<void> updateTeam(String tournamentId, String teamId, Map<String, dynamic> updates) async {
+    await _api._request('PATCH', '/tournaments/$tournamentId/teams/$teamId', body: updates);
+  }
+
+  /// Any app user requests to become captain of a team.
+  static Future<void> requestCaptain(String tournamentId, String teamId, Map<String, dynamic> payload) async {
+    await _api._request('POST', '/tournaments/$tournamentId/teams/$teamId/captain-requests', body: payload);
+  }
+
+  /// League organizer fetches pending captain requests for their tournament.
+  static Future<List<CaptainRequest>> getCaptainRequests(String tournamentId) async {
+    final data = await _api._request(
+      'GET', '/tournaments/$tournamentId/captain-requests',
+      query: {'status': 'pending'},
+    ) as List;
+    return data.map((j) => CaptainRequest.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  /// League organizer approves or rejects a captain request.
+  static Future<void> respondToCaptainRequest(
+      String tournamentId, String requestId, String status) async {
+    await _api._request('PATCH', '/tournaments/$tournamentId/captain-requests/$requestId',
+        body: {'status': status});
+  }
+
+  /// Assign captain directly by email (top-down by organizer).
+  static Future<void> assignCaptainByEmail(
+      String tournamentId, String teamId, String email) async {
+    await _api._request('POST', '/tournaments/$tournamentId/teams/$teamId/assign-captain',
+        body: {'email': email});
   }
 
   static Future<void> genFixtures(String tournamentId) async {
@@ -433,6 +495,21 @@ class PlayerApi {
 }
 
 // ── Clip API ──────────────────────────────────────────────────
+class UserApi {
+  UserApi._();
+  static final _api = ApiService.instance;
+
+  /// Search users by name or email. Returns up to 20 results.
+  static Future<List<AppUser>> search(String query) async {
+    if (query.trim().isEmpty) return [];
+    final data = await _api._request(
+      'GET', '/users',
+      query: {'q': query.trim(), 'limit': '20'},
+    ) as List;
+    return data.map((j) => AppUser.fromJson(j as Map<String, dynamic>)).toList();
+  }
+}
+
 class ClipApi {
   static final _api = ApiService.instance;
 

@@ -23,12 +23,69 @@ class AuthUser {
       isAdmin || t.createdBy == sub || isScorer ||
       t.scorerIds.contains(sub) || t.scorerIds.contains(email);
 
+  bool isLeagueOrganizerFor(Tournament t) => isAdmin || t.createdBy == sub;
+  bool isTeamCaptainOf(Team t) =>
+      (t.captainId != null && t.captainId == sub) ||
+      (t.captainEmail != null && t.captainEmail!.toLowerCase() == email.toLowerCase());
+  bool canManageRoster(Team t, String? tournamentCreatedBy) =>
+      isAdmin || canManage(tournamentCreatedBy) || isTeamCaptainOf(t);
+
   factory AuthUser.fromJson(Map<String, dynamic> j) => AuthUser(
     sub:    j['sub']   as String,
     email:  j['email'] as String,
     name:   j['name']  as String? ?? j['email'] as String,
     groups: List<String>.from(j['cognito:groups'] as List? ?? []),
   );
+}
+
+// ── Captain Request ───────────────────────────────────────────
+class CaptainRequest {
+  final String id, tournamentId, teamId, teamName;
+  final String requestedBy, requesterName, requesterEmail;
+  final String status; // 'pending' | 'approved' | 'rejected'
+  final int requestedAt;
+
+  const CaptainRequest({
+    required this.id, required this.tournamentId,
+    required this.teamId, required this.teamName,
+    required this.requestedBy, required this.requesterName,
+    required this.requesterEmail, required this.status,
+    required this.requestedAt,
+  });
+
+  bool get isPending  => status == 'pending';
+  bool get isApproved => status == 'approved';
+
+  factory CaptainRequest.fromJson(Map<String, dynamic> j) => CaptainRequest(
+    id:             j['id']             as String? ?? '',
+    tournamentId:   j['tournamentId']   as String? ?? '',
+    teamId:         j['teamId']         as String? ?? '',
+    teamName:       j['teamName']       as String? ?? '',
+    requestedBy:    j['requestedBy']    as String? ?? '',
+    requesterName:  j['requesterName']  as String? ?? '',
+    requesterEmail: j['requesterEmail'] as String? ?? '',
+    status:         j['status']         as String? ?? 'pending',
+    requestedAt:    (j['requestedAt']   as num?)?.toInt() ?? 0,
+  );
+}
+
+// ── App User (for search / captain assignment) ────────────────
+class AppUser {
+  final String sub, name, email;
+
+  const AppUser({required this.sub, required this.name, required this.email});
+
+  factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
+    sub:   j['sub']   as String? ?? j['userId'] as String? ?? '',
+    name:  j['name']  as String? ?? j['email']  as String? ?? '',
+    email: j['email'] as String? ?? '',
+  );
+
+  String get initials {
+    final parts = name.trim().split(' ');
+    if (parts.length >= 2) return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+  }
 }
 
 // ── Tournament ────────────────────────────────────────────────
@@ -73,18 +130,22 @@ class Team {
   final String id, name, shortName;
   final String? tournamentId;
   final List<Player> players;
-
   final String? createdBy;
+  final String? captainId;
+  final String? captainEmail;
 
   const Team({
     required this.id, required this.name, required this.shortName,
     this.tournamentId, this.players = const [], this.createdBy,
+    this.captainId, this.captainEmail,
   });
 
-  Team copyWith({List<Player>? players}) => Team(
+  Team copyWith({List<Player>? players, String? captainId, String? captainEmail}) => Team(
     id: id, name: name, shortName: shortName,
     tournamentId: tournamentId, createdBy: createdBy,
     players: players ?? this.players,
+    captainId: captainId ?? this.captainId,
+    captainEmail: captainEmail ?? this.captainEmail,
   );
 
   factory Team.fromJson(Map<String, dynamic> j) => Team(
@@ -93,13 +154,17 @@ class Team {
     shortName:    j['shortName']    as String? ?? (j['name'] as String).substring(0, (j['name'] as String).length.clamp(0, 3)).toUpperCase(),
     tournamentId: j['tournamentId'] as String?,
     players:      (j['players']     as List?)?.map((p) => Player.fromJson(p as Map<String, dynamic>)).toList() ?? [],
-    createdBy:    j['createdBy'] as String?,
+    createdBy:    j['createdBy']    as String?,
+    captainId:    j['captainId']    as String?,
+    captainEmail: j['captainEmail'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id, 'name': name, 'shortName': shortName,
     if (tournamentId != null) 'tournamentId': tournamentId,
     if (createdBy != null) 'createdBy': createdBy,
+    if (captainId != null) 'captainId': captainId,
+    if (captainEmail != null) 'captainEmail': captainEmail,
     'players': players.map((p) => p.toJson()).toList(),
   };
 }
@@ -383,7 +448,7 @@ class Delivery {
 
   factory Delivery.fromJson(Map<String, dynamic> j) => Delivery(
     overNumber:       (j['overNumber']       as num?)?.toInt() ?? 0,
-    ballNumber:       (j['ballNumber']       as num?)?.toInt() ?? 0,
+    ballNumber:       (j['ballNumber'] as num?)?.toInt() ?? (j['ballInOver'] as num?)?.toInt() ?? 0,
     runsBatsman:      (j['runsBatsman']      as num?)?.toInt() ??
                       (j['runs'] != null ? (j['runs']['batsman'] as num?)?.toInt() ?? 0 : 0),
     runsExtras:       (j['runsExtras']       as num?)?.toInt() ??
