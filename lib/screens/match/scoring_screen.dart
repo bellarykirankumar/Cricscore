@@ -11,6 +11,7 @@ import '../../models/models.dart';
 import '../../utils/cricket_utils.dart';
 import 'commentary_screen.dart';
 import 'camera_buffer_screen.dart';
+import '../../services/camera_buffer_service.dart';
 
 class ScoringScreen extends ConsumerStatefulWidget {
   final String matchId;
@@ -53,10 +54,14 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     _loadMatch();
     _initSpeech();
     ClipWsService.instance.connect(widget.matchId);
-    // Sync camera buffering indicator with CameraBufferScreen state
-    _cameraBuffering = ClipWsService.instance.isBuffering;
+    // Sync camera buffering indicator — from either service or WS
+    _cameraBuffering = ClipWsService.instance.isBuffering || CameraBufferService.instance.buffering;
     _bufferingSub = ClipWsService.instance.onBufferingChanged.listen((active) {
-      if (mounted) setState(() => _cameraBuffering = active);
+      if (mounted) setState(() => _cameraBuffering = active || CameraBufferService.instance.buffering);
+    });
+    // Also listen to CameraBufferService state changes
+    CameraBufferService.instance.onStateChanged.listen((_) {
+      if (mounted) setState(() => _cameraBuffering = CameraBufferService.instance.buffering || ClipWsService.instance.isBuffering);
     });
   }
 
@@ -193,6 +198,23 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
         ..clear()
         ..addAll(resolved.batsmanStats.entries
             .where((e) => e.value.isOut).map((e) => e.key));
+
+      // Defensive fix: only clear striker/non-striker if they are BOTH marked
+      // as out AND neither is the active non-striker. This is a narrow guard
+      // for the gap between a wicket and the new batsman pick being persisted.
+      // We only clear the striker slot — never both — to avoid wiping the crease.
+      final strikerIsOut = resolved.currentStrikerId != null &&
+          (resolved.batsmanStats[resolved.currentStrikerId]?.isOut ?? false);
+      final nonStrikerIsOut = resolved.currentNonStrikerId != null &&
+          (resolved.batsmanStats[resolved.currentNonStrikerId]?.isOut ?? false);
+      // Only clear a slot if it points to an out player AND the OTHER slot is fine.
+      // If both are out something is badly wrong — don't clear anything, let backend win.
+      if (strikerIsOut && !nonStrikerIsOut) {
+        resolved = Innings.copyWith(resolved, clearStriker: true);
+      } else if (nonStrikerIsOut && !strikerIsOut) {
+        resolved = Innings.copyWith(resolved, clearNonStriker: true);
+      }
+
       setState(() { _match = m; _innings = resolved; _loading = false; });
       // Only show picker for what's actually missing
       if (resolved.currentStrikerId == null) {
@@ -255,37 +277,45 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     if (inn == null) return;
     HapticFeedback.selectionClick();
     if (_pickerMode == 'new_batsman') {
-      final newInn = (inn.currentStrikerId == null)
+      final isStriker = inn.currentStrikerId == null;
+      final newInn = isStriker
           ? Innings.copyWith(inn, currentStrikerId: player.id)
           : Innings.copyWith(inn, currentNonStrikerId: player.id);
       setState(() => _innings = newInn);
+      // Persist new batsman immediately
+      unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+        currentStrikerId:    isStriker ? player.id : newInn.currentStrikerId,
+        currentNonStrikerId: isStriker ? newInn.currentNonStrikerId : player.id,
+      ));
 
       if (_runOutStrikerDismissed != null && !_wicketOverComplete) {
-        // Mid-over run out: ask who's on strike before resuming
         Future.delayed(const Duration(milliseconds: 200),
             () { if (mounted) setState(() => _pickerMode = 'striker_confirm'); });
         return;
       }
       if (_pendingBowlerChange) {
-        // Last ball wicket (normal or run out): close over → new bowler → striker confirm
         setState(() { _pendingBowlerChange = false; _pendingStrikerConfirm = true; _pickerMode = null; });
         Future.delayed(const Duration(milliseconds: 300),
             () { if (mounted) setState(() => _pickerMode = 'new_bowler'); });
         return;
       }
     } else if (_pickerMode == 'run_out_who') {
-      // This mode is handled by a custom widget — not a player picker
-      // (see _RunOutWhoWidget below); this branch won't be reached
-      return;
+      return; // handled by _RunOutWhoSheet directly
     } else if (_pickerMode == 'striker') {
       setState(() => _innings = Innings.copyWith(inn, currentStrikerId: player.id));
+      unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+        currentStrikerId: player.id));
       if (inn.currentNonStrikerId == null) { setState(() => _pickerMode = 'non_striker'); return; }
       if (inn.currentBowlerId == null)     { setState(() => _pickerMode = 'bowler'); return; }
     } else if (_pickerMode == 'non_striker') {
       setState(() => _innings = Innings.copyWith(inn, currentNonStrikerId: player.id));
+      unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+        currentNonStrikerId: player.id));
       if (inn.currentBowlerId == null) { setState(() => _pickerMode = 'bowler'); return; }
     } else if (_pickerMode == 'bowler' || _pickerMode == 'new_bowler') {
       setState(() => _innings = Innings.copyWith(inn, currentBowlerId: player.id));
+      unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+        currentBowlerId: player.id));
       if (_pendingStrikerConfirm) {
         setState(() { _pendingStrikerConfirm = false; _pickerMode = 'striker_confirm'; });
         return;
@@ -715,11 +745,39 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       currentStrikerId: inn.currentNonStrikerId,
       currentNonStrikerId: inn.currentStrikerId,
     ));
+    unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+      currentStrikerId:    inn.currentNonStrikerId,
+      currentNonStrikerId: inn.currentStrikerId,
+    ));
   }
 
   // ── Camera device sheet ───────────────────────────────────────
   // Shows the match ID so the camera person can join, with a button
   // to open the camera buffer screen on this same device.
+  Widget _howItWorksStep(String num, IconData icon, String title, String desc) {
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        width: 22, height: 22,
+        decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
+        alignment: Alignment.center,
+        child: Text(num, style: const TextStyle(
+          color: AppColors.textOnAcc, fontSize: 11, fontWeight: FontWeight.w800)),
+      ),
+      const SizedBox(width: 10),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 13, color: AppColors.text2),
+          const SizedBox(width: 4),
+          Text(title, style: const TextStyle(
+            color: AppColors.text, fontSize: 12, fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 2),
+        Text(desc, style: const TextStyle(
+          color: AppColors.text2, fontSize: 12, height: 1.4)),
+      ])),
+    ]);
+  }
+
   void _showCameraSheet() {
     showModalBottomSheet(
       context: context,
@@ -735,13 +793,49 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
             margin: const EdgeInsets.only(bottom: 20),
             decoration: BoxDecoration(
               color: AppColors.border, borderRadius: BorderRadius.circular(2))),
-          const Text('📹 Video Clips', style: TextStyle(
-            fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.text)),
-          const SizedBox(height: 8),
-          const Text(
-            'Open this match on the camera device and enter the Match ID below.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.text2, fontSize: 13, height: 1.4)),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('📹 Video Clips', style: TextStyle(
+              fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.text)),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.accent,
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: const Text('BETA', style: TextStyle(
+                color: AppColors.textOnAcc, fontSize: 9,
+                fontWeight: FontWeight.w800, letterSpacing: 0.4)),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          // How it works
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.bgElevated,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('How it works', style: TextStyle(
+                color: AppColors.text, fontSize: 12,
+                fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+              const SizedBox(height: 10),
+              _howItWorksStep('1', Icons.phone_android_outlined,
+                'Set up a camera device',
+                'Open CricScore on a second phone, tap the camera icon, and enter the Match ID.'),
+              const SizedBox(height: 8),
+              _howItWorksStep('2', Icons.sports_cricket_outlined,
+                'Score normally',
+                'Clips are saved automatically when you mark a wicket, four, or six.'),
+              const SizedBox(height: 8),
+              _howItWorksStep('3', Icons.video_library_outlined,
+                'Watch highlights',
+                'Tap Highlights on the scorecard to watch and share the clips.'),
+            ]),
+          ),
           const SizedBox(height: 16),
           // Match ID display
           Container(
@@ -787,6 +881,10 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     try {
       final isSecond = cur.inningsNumber == 2;
       await MatchApi.update(widget.matchId, {'status': isSecond ? 'completed' : 'innings_break'});
+      // Stop camera buffering when match/innings ends — no more clip triggers coming.
+      if (isSecond && CameraBufferService.instance.buffering) {
+        CameraBufferService.instance.stopBuffering();
+      }
 
       // ── Career stats: accumulate this innings into each player's record ──
       final statsBatch = <Map<String, dynamic>>[];
@@ -963,7 +1061,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
             child: Column(children: [
               Row(children: [
-                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20, color: AppColors.text2), onPressed: () => context.pop()),
+                IconButton(icon: const Icon(Icons.arrow_back_ios, size: 20, color: AppColors.text2), onPressed: () => context.canPop() ? context.pop() : context.go('/')),
                 Expanded(child: Column(children: [
                   Text('${_battingTeam?.shortName ?? "—"} vs ${_bowlingTeam?.shortName ?? "—"}',
                     style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text)),
@@ -973,11 +1071,30 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                 IconButton(icon: const Icon(Icons.assignment_outlined, color: AppColors.text2),
                   onPressed: () => context.push('/scorecard/${widget.matchId}')),
                 IconButton(
-                  tooltip: _cameraBuffering ? 'Camera buffering' : 'Camera device',
-                  icon: Icon(
-                    _cameraBuffering ? Icons.videocam : Icons.videocam_outlined,
-                    color: _cameraBuffering ? AppColors.wicket : AppColors.text2,
-                  ),
+                  tooltip: _cameraBuffering ? 'Camera buffering' : 'Video Clips (Beta)',
+                  icon: Stack(clipBehavior: Clip.none, children: [
+                    Icon(
+                      _cameraBuffering ? Icons.videocam : Icons.videocam_outlined,
+                      color: _cameraBuffering ? AppColors.wicket : AppColors.text2,
+                    ),
+                    Positioned(
+                      top: -4, right: -6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text('BETA',
+                          style: TextStyle(
+                            color: AppColors.textOnAcc,
+                            fontSize: 7,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.3,
+                          )),
+                      ),
+                    ),
+                  ]),
                   onPressed: () => _showCameraSheet(),
                 ),
                 IconButton(
@@ -1006,6 +1123,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                     ));
                     if (ok == true) {
                       await MatchApi.update(widget.matchId, {'status': 'completed'});
+                      CameraBufferService.instance.stopBuffering();
                       if (mounted) context.push('/scorecard/${widget.matchId}');
                     }
                   },
@@ -1249,14 +1367,50 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
           final outId      = strikerOut ? inn.currentStrikerId    : inn.currentNonStrikerId;
           final survivorId = strikerOut ? inn.currentNonStrikerId : inn.currentStrikerId;
           if (outId != null) _dismissedIds.add(outId);
+
+          // Apply end-of-over rotation when this is the last ball of an over.
+          // The batsman who just faced the ball moves to the non-striker end,
+          // so the incoming batsman or the surviving non-striker faces the next over.
+          //
+          // Without over-complete:
+          //   striker out  → striker=null,     nonStriker=survivor
+          //   nonStriker out → striker=survivor, nonStriker=null
+          //
+          // With over-complete (swap the survivor's end):
+          //   striker out  → striker=survivor (non-striker walks to face next over)
+          //                   nonStriker=null  (new batsman at non-striker end)
+          //   nonStriker out → striker=null  (new batsman faces next over)
+          //                     nonStriker=survivor (original striker walks to non-striker end)
+          final bool overComplete = _wicketOverComplete;
+          String? newStriker, newNonStriker;
+          bool clearS, clearNS;
+          if (!overComplete) {
+            newStriker    = strikerOut ? null       : survivorId;
+            newNonStriker = strikerOut ? survivorId : null;
+            clearS        = strikerOut;
+            clearNS       = !strikerOut;
+          } else {
+            // Over-complete: survivor swaps end
+            newStriker    = strikerOut ? survivorId : null;
+            newNonStriker = strikerOut ? null       : survivorId;
+            clearS        = !strikerOut;
+            clearNS       = strikerOut;
+          }
+
+          final wronglyMarkedId = strikerOut ? null : inn.currentStrikerId;
+          unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+            currentStrikerId:    newStriker,
+            currentNonStrikerId: newNonStriker,
+            dismissedPlayerId:   outId,
+            clearedPlayerId:     wronglyMarkedId,
+          ));
           setState(() {
             _runOutStrikerDismissed = strikerOut;
-            // Survivor stays, dismissed slot becomes null for new batsman
             _innings = Innings.copyWith(inn,
-              currentStrikerId:    strikerOut ? null     : survivorId,
-              currentNonStrikerId: strikerOut ? survivorId : null,
-              clearStriker:        strikerOut,
-              clearNonStriker:     !strikerOut,
+              currentStrikerId:    newStriker,
+              currentNonStrikerId: newNonStriker,
+              clearStriker:        clearS,
+              clearNonStriker:     clearNS,
             );
             _pickerMode = 'new_batsman';
           });
@@ -1264,17 +1418,17 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
       ) : _pickerMode == 'striker_confirm' ? _StrikerConfirmSheet(
         strikerName: _getName(inn.currentStrikerId),
         onConfirm: (isCorrect) {
-          setState(() {
-            if (!isCorrect) {
-              // Swap striker and non-striker
-              _innings = Innings.copyWith(inn,
-                currentStrikerId:    inn.currentNonStrikerId,
-                currentNonStrikerId: inn.currentStrikerId,
-              );
-            }
-            _runOutStrikerDismissed = null;
-            _pickerMode = null;
-          });
+          if (!isCorrect) {
+            setState(() => _innings = Innings.copyWith(inn,
+              currentStrikerId:    inn.currentNonStrikerId,
+              currentNonStrikerId: inn.currentStrikerId,
+            ));
+            unawaited(MatchApi.patchInningsState(widget.matchId, inn.inningsNumber,
+              currentStrikerId:    inn.currentNonStrikerId,
+              currentNonStrikerId: inn.currentStrikerId,
+            ));
+          }
+          setState(() { _runOutStrikerDismissed = null; _pickerMode = null; });
         },
       ) : _pickerMode != null ? _PlayerPickerSheet(
         title: _pickerTitle,
@@ -1766,7 +1920,7 @@ class _MatchResultScreenState extends State<_MatchResultScreen> {
           const SizedBox(height: 10),
           SizedBox(width: double.infinity, height: 48,
             child: OutlinedButton(
-              onPressed: () => context.pop(),
+              onPressed: () => context.canPop() ? context.pop() : context.go('/'),
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.text2,
                 side: const BorderSide(color: AppColors.border),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
