@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../main.dart';
+import '../../widgets/location_picker_sheet.dart';
 
 // ── Data model for wizard state ────────────────────────────────
 class _WizardState {
@@ -22,6 +23,10 @@ class _WizardState {
 
   // Custom format
   int? customOvers;
+
+  // Location
+  String? state;
+  String? city;
 
   /// Human-readable format label sent to the API.
   /// For custom: "Custom-15" (with overs) or just "Custom".
@@ -190,6 +195,8 @@ class _TournamentSetupWizardState extends ConsumerState<TournamentSetupWizard> {
         'status': 'upcoming',
         if (user != null) 'createdBy': user.sub,
         if (country != null) 'country': country,
+        if (_state.state != null) 'state': _state.state,
+        if (_state.city  != null) 'city':  _state.city,
       });
       await AuthService.instance.claimOwnership(tournament.id);
 
@@ -519,6 +526,63 @@ class _Step0BasicsState extends State<_Step0Basics> {
           ]),
         ),
       )),
+      const SizedBox(height: 20),
+
+      // Location
+      const Text('Location', style: TextStyle(color: AppColors.text2, fontSize: 13, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 8),
+      GestureDetector(
+        onTap: () async {
+          final country = await AuthService.instance.getCountry();
+          if (!context.mounted) return;
+          final result = await showModalBottomSheet<(String, String)>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => LocationPickerSheet(
+              country: country,
+              initialState: state.state,
+            ),
+          );
+          if (result != null) {
+            state.state = result.$1;
+            state.city  = result.$2;
+            widget.onChanged();
+            setState(() {});
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.bgCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(children: [
+            Icon(Icons.location_on_outlined,
+              color: state.city != null ? AppColors.accent : AppColors.text2, size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(
+              state.city != null
+                ? '${state.city!}  ·  ${stateName(state.state!)}'
+                : 'Select state & city (optional)',
+              style: TextStyle(
+                color: state.city != null ? AppColors.text : AppColors.text2,
+                fontSize: 14),
+            )),
+            if (state.city != null)
+              GestureDetector(
+                onTap: () { state.state = null; state.city = null; widget.onChanged(); setState(() {}); },
+                child: const Icon(Icons.close, size: 16, color: AppColors.text2),
+              )
+            else
+              const Icon(Icons.chevron_right, color: AppColors.text2, size: 18),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 8),
+      const Text('Helps players discover your league by location.',
+        style: TextStyle(color: AppColors.text2, fontSize: 12)),
     ]);
   }
 }

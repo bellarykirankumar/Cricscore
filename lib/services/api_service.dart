@@ -229,8 +229,13 @@ class MatchApi {
 class TournamentApi {
   static final _api = ApiService.instance;
 
-  static Future<List<Tournament>> list() async {
-    final data = await _api._request('GET', '/tournaments') as List;
+  static Future<List<Tournament>> list({String? state, String? city}) async {
+    final query = <String, String>{
+      if (state != null) 'state': state,
+      if (city  != null) 'city':  city,
+    };
+    final data = await _api._request('GET', '/tournaments',
+        query: query.isEmpty ? null : query) as List;
     return data
       .map((j) => Tournament.fromJson(j as Map<String, dynamic>))
       .where((t) => t.status != 'deleted' && t.status != 'archived')

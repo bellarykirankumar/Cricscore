@@ -7,6 +7,7 @@ import '../../services/auth_service.dart';
 import '../../models/models.dart';
 import '../../main.dart';
 import '../../widgets/country_picker_sheet.dart';
+import '../../widgets/location_picker_sheet.dart';
 
 class TournamentListScreen extends ConsumerStatefulWidget {
   const TournamentListScreen({super.key});
@@ -17,6 +18,8 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
   List<Tournament> _list      = [];
   Set<String>      _ownedIds  = {};
   String?          _userCountry;
+  String?          _filterState;
+  String?          _filterCity;
   bool             _loading   = true;
   bool             _showCreate = false;
   final _nameCtrl  = TextEditingController();
@@ -30,7 +33,7 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final results = await Future.wait([
-      TournamentApi.list().catchError((_) => <Tournament>[]),
+      TournamentApi.list(state: _filterState, city: _filterCity).catchError((_) => <Tournament>[]),
       AuthService.instance.getOwnedIds(),
       AuthService.instance.getCountry(),
     ]);
@@ -42,6 +45,7 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
       _list = all.where((t) {
         if (user?.isAdmin == true) return true;           // admins see all
         if (user?.isScorerFor(t) == true) return true;   // invited scorers always see it
+        if (_filterState != null || _filterCity != null) return true; // location filter applied server-side
         if (_userCountry == null) return true;
         if (t.country == _userCountry) return true;
         // Own untagged tournaments always visible.
@@ -52,6 +56,27 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
       _ownedIds = ownedIds;
       _loading  = false;
     });
+  }
+
+  Future<void> _pickLocation() async {
+    final result = await showModalBottomSheet<(String, String)>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => LocationPickerSheet(
+        country: _userCountry,
+        initialState: _filterState,
+      ),
+    );
+    if (result != null) {
+      setState(() { _filterState = result.$1; _filterCity = result.$2; });
+      _load();
+    }
+  }
+
+  void _clearLocationFilter() {
+    setState(() { _filterState = null; _filterCity = null; });
+    _load();
   }
 
   Future<void> _create() async {
@@ -79,6 +104,8 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
         'maxTeams': _maxTeams, 'status': 'upcoming',
         if (user != null) 'createdBy': user.sub,
         'country': country,
+        if (_filterState != null) 'state': _filterState,
+        if (_filterCity  != null) 'city':  _filterCity,
       });
       await AuthService.instance.claimOwnership(created.id);
       _nameCtrl.clear();
@@ -119,6 +146,15 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
           onPressed: () => context.go('/'),
         ),
         actions: [
+          // Location filter
+          IconButton(
+            tooltip: _filterCity != null ? '$_filterCity (clear)' : 'Filter by location',
+            icon: Icon(
+              _filterState != null ? Icons.location_on : Icons.location_on_outlined,
+              color: _filterState != null ? AppColors.accent : AppColors.text2,
+            ),
+            onPressed: _filterState != null ? _clearLocationFilter : _pickLocation,
+          ),
           if (user != null) ...[
             // Wizard: full guided setup
             IconButton(
@@ -126,7 +162,7 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
               icon: const Icon(Icons.auto_awesome, color: AppColors.accent),
               onPressed: () async {
                 await context.push('/tournament/setup');
-                _load(); // refresh list when wizard returns
+                _load();
               },
             ),
             // Quick create: inline form
@@ -145,6 +181,25 @@ class _TournamentListState extends ConsumerState<TournamentListScreen> {
             onRefresh: _load,
             color: AppColors.accent,
             child: ListView(children: [
+              if (_filterState != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                  child: Row(children: [
+                    const Icon(Icons.location_on, size: 14, color: AppColors.accent),
+                    const SizedBox(width: 4),
+                    Text(
+                      _filterCity != null
+                        ? '$_filterCity · ${stateName(_filterState!)}'
+                        : stateName(_filterState!),
+                      style: const TextStyle(color: AppColors.accent, fontSize: 13),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _clearLocationFilter,
+                      child: const Icon(Icons.close, size: 14, color: AppColors.text2),
+                    ),
+                  ]),
+                ),
               if (_showCreate && user != null) _buildCreateForm(),
               ..._list.map((t) => AppCard(
                 onTap: () => context.push('/tournament/${t.id}'),

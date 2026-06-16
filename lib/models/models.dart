@@ -158,13 +158,14 @@ class Tournament {
   final int createdAt;
   final String? createdBy;
   final List<String> scorerIds;
-  final String? country;
+  final String? country, state, city;
 
   const Tournament({
     required this.id, required this.name, required this.format,
     required this.maxTeams, required this.teamCount, required this.status,
     this.venue, this.startDate, required this.createdAt,
-    this.createdBy, this.scorerIds = const [], this.country,
+    this.createdBy, this.scorerIds = const [],
+    this.country, this.state, this.city,
   });
 
   bool get isActive    => status == 'in_progress';
@@ -184,6 +185,8 @@ class Tournament {
     createdBy: j['createdBy'] as String?,
     scorerIds: List<String>.from(j['scorerIds'] as List? ?? []),
     country:   j['country']   as String?,
+    state:     j['state']     as String?,
+    city:      j['city']      as String?,
   );
 }
 
