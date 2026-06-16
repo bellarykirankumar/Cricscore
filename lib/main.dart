@@ -21,6 +21,8 @@ import 'screens/tournament/team_roster_screen.dart';
 import 'screens/tournament/tournament_setup_wizard.dart';
 import 'screens/match/commentary_screen.dart';
 import 'screens/match/camera_buffer_screen.dart';
+import 'screens/tournament/league_join_screen.dart';
+import 'package:app_links/app_links.dart';
 
 // ── Auth State Provider ───────────────────────────────────────
 final authProvider = StateNotifierProvider<AuthNotifier, AsyncValue<AuthUser?>>((ref) {
@@ -95,6 +97,10 @@ final _router = GoRouter(
       ),
     ),
     GoRoute(path: '/tournaments', builder: (_, __) => const TournamentListScreen()),
+    GoRoute(
+      path: '/join/:tournamentId',
+      builder: (_, state) => LeagueJoinScreen(tournamentId: state.pathParameters['tournamentId']!),
+    ),
     GoRoute(path: '/tournament/setup', builder: (_, __) => const TournamentSetupWizard()),
     GoRoute(
       path: '/tournament/:id',
@@ -133,11 +139,44 @@ void main() async {
   );
 }
 
-class CricScoreApp extends ConsumerWidget {
+class CricScoreApp extends ConsumerStatefulWidget {
   const CricScoreApp({super.key});
+  @override ConsumerState<CricScoreApp> createState() => _CricScoreAppState();
+}
+
+class _CricScoreAppState extends ConsumerState<CricScoreApp> {
+  StreamSubscription<Uri>? _linkSub;
+
+  @override void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+
+  @override void dispose() {
+    _linkSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    final appLinks = AppLinks();
+    // Handle link that launched the app cold
+    final initial = await appLinks.getInitialLink();
+    if (initial != null) _handleLink(initial);
+    // Handle links while app is running
+    _linkSub = appLinks.uriLinkStream.listen(_handleLink, onError: (_) {});
+  }
+
+  void _handleLink(Uri uri) {
+    // cricscore://join/<tournamentId>
+    if (uri.scheme == 'cricscore' && uri.host == 'join' && uri.pathSegments.isNotEmpty) {
+      _router.go('/join/${uri.pathSegments.first}');
+    } else if (uri.pathSegments.length >= 2 && uri.pathSegments[0] == 'join') {
+      _router.go('/join/${uri.pathSegments[1]}');
+    }
+  }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'CricScore',
       debugShowCheckedModeBanner: false,

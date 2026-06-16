@@ -78,5 +78,18 @@
 	<string>CricScore uses speech recognition so you can score deliveries by voice — say "four", "wide", "wicket" and more.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.bellark.cricscore</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>cricscore</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

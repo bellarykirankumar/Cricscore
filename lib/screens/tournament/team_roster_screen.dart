@@ -19,6 +19,7 @@ class TeamRosterScreen extends ConsumerStatefulWidget {
 class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
   Team?        _team;
   List<Player> _players        = [];
+  List<LeagueRegistration> _pool = [];
   String?      _tournamentCreatedBy;
   String?      _userCountry;
   Set<String>  _ownedIds       = {};
@@ -49,16 +50,18 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      // Fetch tournament (for createdBy) and team (for captainId/captainEmail) in parallel
       final results = await Future.wait([
         TournamentApi.get(widget.tournamentId),
         TournamentApi.getTeam(widget.tournamentId, widget.teamId),
         PlayerApi.list(widget.teamId).catchError((_) => <Player>[]),
+        TournamentApi.getRegistrations(widget.tournamentId, status: 'available')
+            .catchError((_) => <LeagueRegistration>[]),
       ]);
       if (mounted) setState(() {
         _tournamentCreatedBy = (results[0] as Tournament).createdBy;
         _team               = results[1] as Team;
         _players            = results[2] as List<Player>;
+        _pool               = results[3] as List<LeagueRegistration>;
         _loading = false;
       });
     } catch (_) {
@@ -420,6 +423,40 @@ class _TeamRosterState extends ConsumerState<TeamRosterScreen> {
             color: AppColors.accent,
             child: ListView(children: [
               if (_showAdd && canManage) _buildAddForm(),
+
+              // Player pool banner — shown to captains when players are waiting
+              if (canManage && _pool.isNotEmpty)
+                GestureDetector(
+                  onTap: _showLeaguePool,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.ball.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.ball.withOpacity(0.4)),
+                    ),
+                    child: Row(children: [
+                      Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                          color: AppColors.ball.withOpacity(0.15),
+                          shape: BoxShape.circle),
+                        child: Center(child: Text('${_pool.length}',
+                          style: const TextStyle(
+                            color: AppColors.ball, fontWeight: FontWeight.w800, fontSize: 14))),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Players waiting to join',
+                          style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w600, fontSize: 14)),
+                        Text('Tap to view the pool and add to your team',
+                          style: TextStyle(color: AppColors.text2, fontSize: 12)),
+                      ])),
+                      const Icon(Icons.chevron_right, color: AppColors.ball, size: 18),
+                    ]),
+                  ),
+                ),
 
               // Request captain banner (shown when no captain assigned and user is eligible)
               if (!canManage && _canRequestCaptain(user) && !_loading)

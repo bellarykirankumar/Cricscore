@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart' show Share;
 import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
@@ -282,6 +283,17 @@ class _TournamentDetailState extends ConsumerState<TournamentDetailScreen>
                 fontSize: 12, color: AppColors.text2, fontWeight: FontWeight.w400)),
             ]),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.share_outlined, color: AppColors.text2),
+                tooltip: 'Share join link',
+                onPressed: () {
+                  final link = 'cricscore://join/${widget.tournamentId}';
+                  Share.share(
+                    'Join "${t.name}" on CricScore!\nTap to register as a player: $link',
+                    subject: 'Join ${t.name} on CricScore',
+                  );
+                },
+              ),
               if (user?.canManage(t.createdBy) == true || _isLocalOwner)
                 IconButton(
                   icon: const Icon(Icons.manage_accounts_outlined, color: AppColors.text2),
