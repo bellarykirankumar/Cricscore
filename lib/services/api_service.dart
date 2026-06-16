@@ -242,6 +242,15 @@ class TournamentApi {
       .toList();
   }
 
+  static Future<List<Tournament>> mine() async {
+    final data = await _api._request('GET', '/tournaments',
+        query: {'mine': 'true'}) as List;
+    return data
+      .map((j) => Tournament.fromJson(j as Map<String, dynamic>))
+      .where((t) => t.status != 'deleted' && t.status != 'archived')
+      .toList();
+  }
+
   static Future<Tournament> get(String id) async {
     final data = await _api._request('GET', '/tournaments/$id');
     return Tournament.fromJson(data as Map<String, dynamic>);

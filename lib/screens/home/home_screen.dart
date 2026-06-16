@@ -25,7 +25,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Set<String>      _ownedIds   = {};
   List<CricMatch>  _live       = [];
   List<CricMatch>  _recent     = [];
-  List<Tournament> _tours      = [];
+  List<Tournament> _tours      = [];   // "my leagues" when logged in
+  bool             _hasMyLeagues = false; // true when _tours is personalised
   List<Map<String, dynamic>> _todayFixtures = [];
   List<Map<String, dynamic>> _allFixtures   = [];
   bool             _loading    = true;
@@ -37,6 +38,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _checkAuthAndLoad() async {
     final auth = ref.read(authProvider);
+    if (auth.isLoading) return; // ref.listen will re-trigger once session restores
     if (auth.value == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) context.go('/login'); });
       return;
@@ -68,16 +70,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      final user = ref.read(authProvider).value;
+
       final phase1 = await Future.wait([
         MatchApi.live().catchError((_) => <CricMatch>[]),
         MatchApi.list().catchError((_) => <CricMatch>[]),
-        TournamentApi.list().catchError((_) => <Tournament>[]),
+        // Logged-in users get their personalised league list; guests get country list
+        (user != null
+            ? TournamentApi.mine()
+            : TournamentApi.list()
+        ).catchError((_) => <Tournament>[]),
         AuthService.instance.getOwnedIds(),
       ]);
       if (!mounted) return;
 
       final storedOwnedIds = phase1[3] as Set<String>;
-      final user           = ref.read(authProvider).value;
 
       final backendConfirmed = <String>{};
       if (user?.sub != null) {
@@ -96,18 +103,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
       final ownedIds = {...storedOwnedIds, ...backendConfirmed};
 
-      final tours = (phase1[2] as List<Tournament>).where((t) =>
-        t.status != 'completed' && t.status != 'deleted' && t.status != 'archived')
-        .where((t) {
-          if (user?.isAdmin == true) return true;
-          if (user?.isScorerFor(t) == true) return true;
-          if (_userCountry == null) return true;
-          if (t.country == _userCountry) return true;
-          if (t.country == null &&
-              (ownedIds.contains(t.id) || user?.canManage(t.createdBy) == true)) return true;
-          return false;
-        })
+      final tours = (phase1[2] as List<Tournament>)
+        .where((t) => t.status != 'completed' && t.status != 'deleted' && t.status != 'archived')
         .toList();
+      final hasMyLeagues = user != null; // mine() was called, so list is personalised
       final tourIds = tours.map((t) => t.id).toSet();
 
       final allFix = await TournamentApi
@@ -126,8 +125,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               (ownedIds.contains(m.id) || user?.canManage(m.createdBy) == true)) return true;
           return false;
         }
-        _ownedIds = ownedIds;
-        _tours    = tours;
+        _ownedIds      = ownedIds;
+        _tours         = tours;
+        _hasMyLeagues  = hasMyLeagues;
         _live     = (phase1[0] as List<CricMatch>)
           .where((m) => m.status == 'in_progress' || m.status == 'innings_break')
           .where(matchVisible)
@@ -172,14 +172,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   @override Widget build(BuildContext context) {
-    ref.listen<AsyncValue<AuthUser?>>(authProvider, (_, next) {
-      if (next.value == null && mounted) context.go('/login');
+    ref.listen<AsyncValue<AuthUser?>>(authProvider, (prev, next) {
+      if (next.isLoading) return;
+      if (next.value == null) {
+        if (mounted) context.go('/login');
+      } else if (prev?.isLoading == true) {
+        // Session restored on startup — kick off data load now
+        _checkAuthAndLoad();
+      }
     });
 
     final auth = ref.watch(authProvider);
     final user = auth.value;
 
-    if (user == null && !_loading) {
+    if (user == null && !auth.isLoading) {
       WidgetsBinding.instance.addPostFrameCallback((_) => context.go('/login'));
       return const LoadingScreen();
     }
@@ -222,8 +228,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               _HomeTab(live: _live, recent: _recent, tours: _tours,
                 todayFixtures: _todayFixtures, allFixtures: _allFixtures,
                 onRefresh: _load, onEndMatch: _endMatch, user: user,
-                ownedIds: _ownedIds),
-              _TournamentsTab(tours: _tours, onRefresh: _load, user: user),
+                ownedIds: _ownedIds, hasMyLeagues: _hasMyLeagues),
+              _TournamentsTab(tours: _tours, onRefresh: _load, user: user,
+                hasMyLeagues: _hasMyLeagues),
               _TeamsTab(tours: _tours, onRefresh: _load),
               // Hidden camera tab — kept alive in IndexedStack so buffering
               // continues while user scores. Accessible from drawer.
@@ -580,12 +587,13 @@ class _HomeTab extends StatelessWidget {
   final Future<void> Function(String) onEndMatch;
   final AuthUser? user;
   final Set<String> ownedIds;
+  final bool hasMyLeagues;
 
   const _HomeTab({
     required this.live, required this.recent, required this.tours,
     required this.todayFixtures, required this.allFixtures,
     required this.onRefresh, required this.onEndMatch, required this.user,
-    required this.ownedIds,
+    required this.ownedIds, required this.hasMyLeagues,
   });
 
   @override Widget build(BuildContext context) {
@@ -634,9 +642,9 @@ class _HomeTab extends StatelessWidget {
           }),
         ],
 
-        // Active tournaments
+        // My Leagues / Active tournaments
         if (tours.isNotEmpty) ...[
-          const SectionHeader(title: 'Leagues'),
+          SectionHeader(title: hasMyLeagues ? 'My Leagues' : 'Leagues'),
           ...tours.map((t) => _StripCard(
             stripColor: t.isActive ? AppColors.accent : AppColors.ball,
             stripLabel: t.isActive ? 'ACTIVE' : 'SOON',
@@ -648,10 +656,40 @@ class _HomeTab extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text('${t.teamCount} teams · ${t.format}',
                   style: const TextStyle(color: AppColors.text2, fontSize: 13)),
+                if (t.city != null)
+                  Text(t.city!, style: const TextStyle(color: AppColors.text2, fontSize: 12)),
               ])),
               const Icon(Icons.chevron_right, color: AppColors.text3, size: 20),
             ]),
           )),
+        ] else if (hasMyLeagues) ...[
+          const SectionHeader(title: 'My Leagues'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: GestureDetector(
+              onTap: () => context.push('/tournaments'),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.bgCard,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.search, color: AppColors.accent, size: 20),
+                  const SizedBox(width: 12),
+                  const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text("You're not in any leagues yet",
+                      style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 2),
+                    Text('Find a league near you to join',
+                      style: TextStyle(color: AppColors.text2, fontSize: 13)),
+                  ])),
+                  const Icon(Icons.chevron_right, color: AppColors.text3, size: 18),
+                ]),
+              ),
+            ),
+          ),
         ],
 
         // Recent results
@@ -777,8 +815,9 @@ class _TournamentsTab extends StatelessWidget {
   final List<Tournament> tours;
   final Future<void> Function() onRefresh;
   final AuthUser? user;
+  final bool hasMyLeagues;
 
-  const _TournamentsTab({required this.tours, required this.onRefresh, required this.user});
+  const _TournamentsTab({required this.tours, required this.onRefresh, required this.user, required this.hasMyLeagues});
 
   @override Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -794,6 +833,22 @@ class _TournamentsTab extends StatelessWidget {
               label: const Text('Create League'),
             ),
           ),
+        if (hasMyLeagues) ...[
+          const SizedBox(height: 8),
+          SectionHeader(title: 'My Leagues'),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/tournaments'),
+              icon: const Icon(Icons.explore_outlined, size: 16),
+              label: const Text('Discover all leagues'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                side: const BorderSide(color: AppColors.accent),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         ...tours.map((t) => _StripCard(
           stripColor: t.isActive ? AppColors.accent : t.isCompleted ? AppColors.text3 : AppColors.ball,
