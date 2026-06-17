@@ -12,6 +12,7 @@ import '../../utils/cricket_utils.dart';
 import 'commentary_screen.dart';
 import 'camera_buffer_screen.dart';
 import '../../services/camera_buffer_service.dart';
+import 'stream_broadcast_screen.dart';
 
 class ScoringScreen extends ConsumerStatefulWidget {
   final String matchId;
@@ -40,6 +41,9 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
 
   // Camera buffering state — reflects CameraBufferScreen via ClipWsService
   bool _cameraBuffering = false;
+
+  // Live streaming state
+  bool _isStreaming = false;
 
   // Voice scoring
   final SpeechToText _speech = SpeechToText();
@@ -680,6 +684,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     }).catchError((e) {
       // Log silently — local state is already correct
       debugPrint('Delivery sync failed: $e');
+      return <String, dynamic>{};
     });
 
     // ── 6. Post-ball UI transitions ────────────────────────────────
@@ -1096,6 +1101,34 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
                     ),
                   ]),
                   onPressed: () => _showCameraSheet(),
+                ),
+                // Live streaming button
+                IconButton(
+                  tooltip: _isStreaming ? 'Live — tap to manage' : 'Go Live',
+                  icon: Stack(clipBehavior: Clip.none, children: [
+                    Icon(
+                      _isStreaming ? Icons.podcasts : Icons.podcasts_outlined,
+                      color: _isStreaming ? Colors.red : AppColors.text2,
+                    ),
+                    if (_isStreaming)
+                      Positioned(top: -4, right: -6, child: Container(
+                        width: 8, height: 8,
+                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                      )),
+                  ]),
+                  onPressed: () async {
+                    final title = '${_battingTeam?.shortName ?? ''} vs ${_bowlingTeam?.shortName ?? ''}';
+                    final screen = StreamBroadcastScreen(
+                      matchId: widget.matchId,
+                      matchTitle: title,
+                    );
+                    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+                    // Check if stream is still live after returning
+                    try {
+                      final info = await MatchApi.getStream(widget.matchId);
+                      if (mounted) setState(() => _isStreaming = info['live'] == true);
+                    } catch (_) {}
+                  },
                 ),
                 IconButton(
                   tooltip: 'Commentary',

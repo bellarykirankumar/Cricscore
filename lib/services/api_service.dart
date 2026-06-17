@@ -199,6 +199,22 @@ class MatchApi {
     }
   }
 
+  static Future<Map<String, dynamic>> getStream(String matchId) async {
+    return await _api._request('GET', '/matches/$matchId/stream') as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> startStream(String matchId) async {
+    return await _api._request('POST', '/matches/$matchId/stream/start') as Map<String, dynamic>;
+  }
+
+  static Future<void> stopStream(String matchId) async {
+    await _api._request('DELETE', '/matches/$matchId/stream/stop');
+  }
+
+  static Future<void> pushStreamMetadata(String matchId, Map<String, dynamic> score) async {
+    await _api._request('PUT', '/matches/$matchId/stream/metadata', body: score);
+  }
+
   /// Resolves each [matchId] with [get] — needed because `GET /matches` often
   /// omits completed games, so list-based filtering never sees them.
   static Future<Map<String, String>> loadMatchStatusesForIds(Set<String> ids) async {

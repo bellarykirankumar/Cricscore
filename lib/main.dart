@@ -22,6 +22,7 @@ import 'screens/tournament/tournament_setup_wizard.dart';
 import 'screens/match/commentary_screen.dart';
 import 'screens/match/camera_buffer_screen.dart';
 import 'screens/tournament/league_join_screen.dart';
+import 'screens/match/stream_viewer_screen.dart';
 import 'package:app_links/app_links.dart';
 
 // ── Auth State Provider ───────────────────────────────────────
@@ -101,6 +102,13 @@ final _router = GoRouter(
       path: '/join/:tournamentId',
       builder: (_, state) => LeagueJoinScreen(tournamentId: state.pathParameters['tournamentId']!),
     ),
+    GoRoute(
+      path: '/watch/:matchId',
+      builder: (_, state) => StreamViewerScreen(
+        matchId: state.pathParameters['matchId']!,
+        matchTitle: state.uri.queryParameters['title'] ?? 'Live Match',
+      ),
+    ),
     GoRoute(path: '/tournament/setup', builder: (_, __) => const TournamentSetupWizard()),
     GoRoute(
       path: '/tournament/:id',
@@ -172,6 +180,10 @@ class _CricScoreAppState extends ConsumerState<CricScoreApp> {
       _router.go('/join/${uri.pathSegments.first}');
     } else if (uri.pathSegments.length >= 2 && uri.pathSegments[0] == 'join') {
       _router.go('/join/${uri.pathSegments[1]}');
+    }
+    // cricscore://watch/<matchId>
+    if (uri.scheme == 'cricscore' && uri.host == 'watch' && uri.pathSegments.isNotEmpty) {
+      _router.go('/watch/${uri.pathSegments.first}');
     }
   }
 

@@ -58,6 +58,10 @@ dependencies:
   share_plus: ^10.0.0
   app_links: ^6.3.2
 
+  # Live streaming (RTMPS → AWS IVS)
+  haishin_kit: ^0.16.0
+  audio_session: ^0.1.21
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
