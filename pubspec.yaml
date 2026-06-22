@@ -1,7 +1,7 @@
 name: cricscore
 description: CricScore - AI-assisted cricket scoring platform
 publish_to: 'none'
-version: 1.2.0+40
+version: 1.2.0+44
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -57,10 +57,6 @@ dependencies:
   # Sharing + deep links
   share_plus: ^10.0.0
   app_links: ^6.3.2
-
-  # Live streaming (RTMPS → AWS IVS)
-  haishin_kit: ^0.16.0
-  audio_session: ^0.1.21
 
 dev_dependencies:
   flutter_test:

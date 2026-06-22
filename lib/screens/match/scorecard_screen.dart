@@ -68,8 +68,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios, size: 20),
-          onPressed: () => m.status == 'in_progress'
-            ? context.go('/scoring/${m.id}') : context.go('/'),
+          onPressed: () => context.canPop() ? context.pop() : context.go('/'),
         ),
         title: Text('${m.team1?.shortName} vs ${m.team2?.shortName}'),
         actions: [
@@ -86,7 +85,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
           ),
           if (m.status == 'in_progress')
             TextButton(
-              onPressed: () => context.go('/scoring/${m.id}'),
+              onPressed: () => context.canPop() ? context.pop() : context.go('/scoring/${m.id}'),
               child: const Text('Score', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700)),
             ),
         ],

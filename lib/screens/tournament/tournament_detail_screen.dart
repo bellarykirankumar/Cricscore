@@ -984,7 +984,7 @@ class _FixturesTabState extends State<_FixturesTab> {
                 ]),
                 if (f.status != 'completed') ...[
                   const SizedBox(height: 10),
-                  if (f.matchId != null)
+                  if (f.matchId != null) ...[
                     OutlinedButton(
                       onPressed: () => context.push('/scoring/${f.matchId}'),
                       style: OutlinedButton.styleFrom(foregroundColor: AppColors.ball,
@@ -992,7 +992,8 @@ class _FixturesTabState extends State<_FixturesTab> {
                         minimumSize: const Size(double.infinity, 40),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                       child: const Text('Resume scoring →'),
-                    )
+                    ),
+                  ]
                   else if (widget.user?.isScorerFor(widget.tournament) == true || widget.isOwner)
                     ElevatedButton(
                       onPressed: _starting == f.id ? null : () => _openToss(f),

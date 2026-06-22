@@ -64,3 +64,6 @@ android/local.properties
 
 # macOS
 **/.DS_Store
+
+# Xcode build output
+ios/build/

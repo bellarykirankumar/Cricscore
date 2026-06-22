@@ -158,7 +158,7 @@ class _FixtureTossSheetState extends State<_FixtureTossSheet> {
       }
       await widget.onRefresh();
       if (widget.parentContext.mounted) {
-        widget.parentContext.push('/scoring/${match.id}');
+        widget.parentContext.go('/scoring/${match.id}');
       }
     } catch (e) {
       if (mounted) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../models/models.dart';
@@ -128,6 +129,7 @@ class _CommentaryScreenState extends State<CommentaryScreen>
   // clipKey = "innings_over_ball" → MatchClip
   Map<String, MatchClip> _clips = {};
   bool _apiLoading = false;
+  Timer? _clipRefreshTimer;
 
   @override void initState() {
     super.initState();
@@ -139,9 +141,16 @@ class _CommentaryScreenState extends State<CommentaryScreen>
     // Always load from API — fills the store for any user (admin, viewer)
     // and merges AI text once the Lambda starts saving it to DynamoDB.
     _loadFromApi();
+    // Poll for new clips every 10 seconds so uploads from the camera device
+    // appear without the user needing to reopen the screen.
+    _clipRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) => _loadClips());
   }
 
-  @override void dispose() { _tabs.dispose(); super.dispose(); }
+  @override void dispose() {
+    _tabs.dispose();
+    _clipRefreshTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _loadClips() async {
     try {
