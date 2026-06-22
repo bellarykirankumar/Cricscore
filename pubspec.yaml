@@ -1,7 +1,7 @@
 name: cricscore
 description: CricScore - AI-assisted cricket scoring platform
 publish_to: 'none'
-version: 1.2.0+48
+version: 1.2.0+49
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
