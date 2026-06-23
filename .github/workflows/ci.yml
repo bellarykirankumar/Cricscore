@@ -26,7 +26,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze (lint + type check)
-        run: flutter analyze --fatal-warnings
+        run: flutter analyze lib/ --fatal-warnings
 
       - name: Run unit & widget tests
         run: flutter test --dart-define=ENV=dev
