@@ -784,7 +784,10 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        child: Container(
         decoration: const BoxDecoration(
           color: AppColors.bgCard,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -875,7 +878,7 @@ class _ScoringScreenState extends ConsumerState<ScoringScreen> {
             child: const Text('Close', style: TextStyle(color: AppColors.text2)),
           ),
         ]),
-      ),
+      )),
     );
   }
 

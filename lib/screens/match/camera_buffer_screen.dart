@@ -163,7 +163,7 @@ class _CameraBufferScreenState extends State<CameraBufferScreen> {
               ),
           ],
         ),
-        body: Column(children: [
+        body: SafeArea(child: Column(children: [
           // Background-buffering banner (when camera was released but still recording)
           if (isBackgroundBuffering)
             Container(
@@ -247,7 +247,7 @@ class _CameraBufferScreenState extends State<CameraBufferScreen> {
               )),
             ],
           ])),
-        ]),
+        ])),
       ),
     );
   }
