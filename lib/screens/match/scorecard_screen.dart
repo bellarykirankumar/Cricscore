@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../models/models.dart';
@@ -95,7 +96,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
           tabAlignment: TabAlignment.start,
           tabs: const [
             Tab(text: 'Batting'), Tab(text: 'Bowling'),
-            Tab(text: 'FoW'), Tab(text: 'Phases'),
+            Tab(text: 'FoW'), Tab(text: 'Charts'),
             Tab(text: 'Commentary'),
           ],
         ),
@@ -176,7 +177,7 @@ class _ScorecardScreenState extends State<ScorecardScreen>
           _BattingTab(inn: inn, getName: _getName, dismissalStr: _dismissalStr),
           _BowlingTab(inn: inn, getName: _getName, bowlingTeam: bowlingTeam),
           _FoWTab(inn: inn, getName: _getName, dismissalStr: _dismissalStr),
-          _PhasesTab(inn: inn),
+          _ChartsTab(inn: inn),
           _CommentaryTab(matchId: widget.matchId, inningsNumber: _inningsIdx + 1),
         ])),
       ]),
@@ -361,70 +362,276 @@ class _FoWTab extends StatelessWidget {
   }
 }
 
-class _PhasesTab extends StatelessWidget {
+// ── Charts Tab ────────────────────────────────────────────────
+class _ChartsTab extends StatelessWidget {
   final Innings? inn;
-  const _PhasesTab({required this.inn});
+  const _ChartsTab({required this.inn});
 
   @override Widget build(BuildContext context) {
-    if (inn == null) return const SizedBox();
-    final dels = inn!.deliveries ?? [];
-    final total = inn!.totalRuns == 0 ? 1 : inn!.totalRuns;
+    if (inn == null || (inn!.deliveries?.isEmpty ?? true)) {
+      return const Center(child: Text('No data yet', style: TextStyle(color: AppColors.text2)));
+    }
+    final dels = inn!.deliveries!;
 
-    Map<String, dynamic> phase(int from, int to) {
-      final d = dels.where((x) => x.overNumber >= from && x.overNumber < to && x.isLegalDelivery).toList();
-      return {
-        'runs':    d.fold(0, (s, x) => s + x.runsTotal),
-        'wickets': d.where((x) => x.isWicket).length,
-        'balls':   d.length,
-      };
+    // ── Per-over data ──────────────────────────────────────────
+    final maxOver = dels.map((d) => d.overNumber).fold(0, (a, b) => a > b ? a : b);
+    final overRuns    = List<int>.filled(maxOver + 1, 0);
+    final overWickets = List<int>.filled(maxOver + 1, 0);
+    for (final d in dels) {
+      overRuns[d.overNumber]    += d.runsTotal;
+      if (d.isWicket) overWickets[d.overNumber]++;
     }
 
-    final phases = [
-      ('Powerplay', 'Ov 1–6',   phase(0, 6),  AppColors.accent),
-      ('Middle',    'Ov 7–15',  phase(6, 15), AppColors.ball),
-      ('Death',     'Ov 16–20', phase(15, 20),AppColors.wicket),
-    ];
+    // Cumulative worm
+    final worm = <double>[];
+    double cum = 0;
+    for (int i = 0; i <= maxOver; i++) { cum += overRuns[i]; worm.add(cum); }
 
-    return ListView(padding: const EdgeInsets.all(12), children: phases.map((p) {
-      final runs    = p.$3['runs'] as int;
-      final wickets = p.$3['wickets'] as int;
-      final balls   = p.$3['balls'] as int;
-      return Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.bgCard, borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(p.$1, style: TextStyle(fontWeight: FontWeight.w700, color: p.$4, fontSize: 15)),
-              Text(p.$2, style: const TextStyle(color: AppColors.text2, fontSize: 12)),
-            ])),
-            Text('$runs/$wickets', style: TextStyle(
-              fontSize: 24, fontWeight: FontWeight.w800, color: p.$4)),
-          ]),
-          const Divider(height: 16, color: AppColors.border),
-          Row(children: [
-            _PhStat('Balls',    '$balls'),
-            _PhStat('Run rate', balls > 0 ? ((runs / balls) * 6).toStringAsFixed(1) : '0.0'),
-            _PhStat('% runs',   '${((runs / total) * 100).toStringAsFixed(0)}%'),
-          ]),
+    // ── Partnerships (derived from FoW) ────────────────────────
+    final fow = inn!.fallOfWickets ?? [];
+    final partnerships = <(int, String)>[];
+    int prevRuns = 0;
+    for (final w in fow) {
+      final r = (w['runs'] as num?)?.toInt() ?? 0;
+      final wkt = (w['wicketNumber'] as num?)?.toInt() ?? 0;
+      partnerships.add((r - prevRuns, 'Wkt $wkt'));
+      prevRuns = r;
+    }
+    final lastP = inn!.totalRuns - prevRuns;
+    if (lastP > 0) partnerships.add((lastP, 'Wkt ${fow.length + 1}'));
+
+    // ── Scoring breakdown (dots/1s/2s/3s/4s/6s) ───────────────
+    final legalDels = dels.where((d) => d.isLegalDelivery).toList();
+    final dots  = legalDels.where((d) => d.runsBatsman == 0).length;
+    final ones  = legalDels.where((d) => d.runsBatsman == 1).length;
+    final twos  = legalDels.where((d) => d.runsBatsman == 2).length;
+    final threes= legalDels.where((d) => d.runsBatsman == 3).length;
+    final fours = legalDels.where((d) => d.runsBatsman == 4).length;
+    final sixes = legalDels.where((d) => d.runsBatsman == 6).length;
+    final totalL = legalDels.length == 0 ? 1 : legalDels.length;
+
+    // ── Bowler economy ────────────────────────────────────────
+    final bowlers = inn!.bowlerStats.values.toList()
+      ..sort((a, b) => b.runsConceded.compareTo(a.runsConceded));
+
+    return ListView(padding: const EdgeInsets.all(12), children: [
+
+      // 1. Over by Over
+      _chartCard('Over by Over', SizedBox(height: 180, child: BarChart(
+        BarChartData(
+          maxY: (overRuns.fold(0, (a, b) => a > b ? a : b) + 4).toDouble(),
+          gridData: FlGridData(show: true, drawVerticalLine: false,
+            getDrawingHorizontalLine: (_) => FlLine(color: AppColors.border, strokeWidth: 0.5)),
+          borderData: FlBorderData(show: false),
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 24,
+              getTitlesWidget: (v, _) => Text('${v.toInt()}', style: const TextStyle(color: AppColors.text2, fontSize: 9)))),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 18,
+              getTitlesWidget: (v, _) => v.toInt() % 5 == 0
+                ? Text('${v.toInt()}', style: const TextStyle(color: AppColors.text2, fontSize: 9))
+                : const SizedBox())),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          barGroups: List.generate(maxOver + 1, (i) => BarChartGroupData(x: i, barRods: [
+            BarChartRodData(
+              toY: overRuns[i].toDouble(),
+              color: overWickets[i] > 0 ? AppColors.wicket : AppColors.accent,
+              width: maxOver > 15 ? 6 : 10,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ])),
+          barTouchData: BarTouchData(touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (g, _, r, __) {
+              final w = overWickets[g.x];
+              return BarTooltipItem('Ov ${g.x}\n${r.toY.toInt()} runs${w > 0 ? '\n$w wkt' : ''}',
+                const TextStyle(color: Colors.white, fontSize: 11));
+            },
+          )),
+        ),
+      ))),
+
+      const SizedBox(height: 12),
+
+      // 2. Worm Chart
+      _chartCard('Worm Chart', SizedBox(height: 180, child: LineChart(
+        LineChartData(
+          gridData: FlGridData(show: true, drawVerticalLine: false,
+            getDrawingHorizontalLine: (_) => FlLine(color: AppColors.border, strokeWidth: 0.5)),
+          borderData: FlBorderData(show: false),
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30,
+              getTitlesWidget: (v, _) => Text('${v.toInt()}', style: const TextStyle(color: AppColors.text2, fontSize: 9)))),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 18,
+              getTitlesWidget: (v, _) => v.toInt() % 5 == 0
+                ? Text('${v.toInt()}', style: const TextStyle(color: AppColors.text2, fontSize: 9))
+                : const SizedBox())),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          lineBarsData: [LineChartBarData(
+            spots: worm.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+            isCurved: true, color: AppColors.accent, barWidth: 2.5,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(show: true, color: AppColors.accent.withOpacity(0.1)),
+          )],
+        ),
+      ))),
+
+      const SizedBox(height: 12),
+
+      // 3. Scoring Breakdown
+      _chartCard('Scoring Breakdown', SizedBox(height: 180, child: Row(children: [
+        Expanded(child: PieChart(PieChartData(
+          sectionsSpace: 2, centerSpaceRadius: 36,
+          sections: [
+            if (dots  > 0) PieChartSectionData(value: dots.toDouble(),   color: AppColors.text2,   title: '', radius: 28),
+            if (ones  > 0) PieChartSectionData(value: ones.toDouble(),   color: AppColors.accent,  title: '', radius: 28),
+            if (twos  > 0) PieChartSectionData(value: twos.toDouble(),   color: Colors.teal,       title: '', radius: 28),
+            if (threes> 0) PieChartSectionData(value: threes.toDouble(), color: Colors.purple,     title: '', radius: 28),
+            if (fours > 0) PieChartSectionData(value: fours.toDouble(),  color: AppColors.ball,    title: '', radius: 28),
+            if (sixes > 0) PieChartSectionData(value: sixes.toDouble(),  color: AppColors.wicket,  title: '', radius: 28),
+          ],
+        ))),
+        const SizedBox(width: 12),
+        Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _legend(AppColors.text2,  'Dots  $dots  (${(dots/totalL*100).toStringAsFixed(0)}%)'),
+          _legend(AppColors.accent, '1s    $ones  (${(ones/totalL*100).toStringAsFixed(0)}%)'),
+          _legend(Colors.teal,      '2s    $twos  (${(twos/totalL*100).toStringAsFixed(0)}%)'),
+          _legend(Colors.purple,    '3s    $threes'),
+          _legend(AppColors.ball,   '4s    $fours'),
+          _legend(AppColors.wicket, '6s    $sixes'),
         ]),
-      );
-    }).toList());
+      ]))),
+
+      const SizedBox(height: 12),
+
+      // 4. Partnership Chart
+      if (partnerships.isNotEmpty)
+        _chartCard('Partnerships', SizedBox(height: 30.0 * partnerships.length + 24, child: BarChart(
+          BarChartData(
+            maxY: partnerships.map((p) => p.$1).fold(0, (a, b) => a > b ? a : b).toDouble() + 10,
+            gridData: FlGridData(show: true, drawHorizontalLine: false,
+              getDrawingVerticalLine: (_) => FlLine(color: AppColors.border, strokeWidth: 0.5)),
+            borderData: FlBorderData(show: false),
+            titlesData: FlTitlesData(
+              leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40,
+                getTitlesWidget: (v, m) {
+                  final idx = v.toInt();
+                  if (idx < 0 || idx >= partnerships.length) return const SizedBox();
+                  return Text(partnerships[idx].$2, style: const TextStyle(color: AppColors.text2, fontSize: 9));
+                })),
+              bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 18,
+                getTitlesWidget: (v, _) => Text('${v.toInt()}', style: const TextStyle(color: AppColors.text2, fontSize: 9)))),
+              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            ),
+            barGroups: partnerships.asMap().entries.map((e) => BarChartGroupData(
+              x: e.key, barsSpace: 4,
+              barRods: [BarChartRodData(
+                toY: e.value.$1.toDouble(),
+                color: AppColors.accent, width: 16,
+                borderRadius: BorderRadius.circular(4),
+              )],
+            )).toList(),
+            barTouchData: BarTouchData(touchTooltipData: BarTouchTooltipData(
+              getTooltipItem: (g, _, r, __) => BarTooltipItem(
+                '${partnerships[g.x].$2}\n${r.toY.toInt()} runs',
+                const TextStyle(color: Colors.white, fontSize: 11)),
+            )),
+          ),
+        ))),
+
+      if (partnerships.isNotEmpty) const SizedBox(height: 12),
+
+      // 5. Bowler Economy
+      if (bowlers.isNotEmpty)
+        _chartCard('Bowler Economy', Column(children: bowlers.map((b) {
+          final overs = b.legalDeliveries / 6;
+          final economy = overs > 0 ? b.runsConceded / overs : 0.0;
+          final maxEco = 15.0;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(children: [
+              SizedBox(width: 80, child: Text(b.playerId.length > 10 ? b.playerId.substring(0, 10) : b.playerId,
+                style: const TextStyle(color: AppColors.text2, fontSize: 11), overflow: TextOverflow.ellipsis)),
+              Expanded(child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (economy / maxEco).clamp(0.0, 1.0),
+                  backgroundColor: AppColors.border,
+                  color: economy > 10 ? AppColors.wicket : economy > 7 ? AppColors.ball : AppColors.accent,
+                  minHeight: 14,
+                ),
+              )),
+              const SizedBox(width: 8),
+              Text('${economy.toStringAsFixed(1)} eco\n${b.wicketsTaken}w',
+                style: const TextStyle(color: AppColors.text, fontSize: 10),
+                textAlign: TextAlign.right),
+            ]),
+          );
+        }).toList())),
+
+      const SizedBox(height: 12),
+
+      // 6. Phases summary (compact, below charts)
+      _chartCard('Phase Summary', Column(children: [
+        _phaseRow('Powerplay', 'Ov 1–6',   dels, 0,  6,  inn!.totalRuns, AppColors.accent),
+        const Divider(height: 1, color: AppColors.border),
+        _phaseRow('Middle',    'Ov 7–15',  dels, 6,  15, inn!.totalRuns, AppColors.ball),
+        const Divider(height: 1, color: AppColors.border),
+        _phaseRow('Death',     'Ov 16–20', dels, 15, 20, inn!.totalRuns, AppColors.wicket),
+      ])),
+
+      const SizedBox(height: 24),
+    ]);
   }
-}
 
-class _PhStat extends StatelessWidget {
-  final String label, value;
-  const _PhStat(this.label, this.value);
+  Widget _chartCard(String title, Widget child) => Container(
+    margin: const EdgeInsets.only(bottom: 4),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: AppColors.bgCard, borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: AppColors.border)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(
+        color: AppColors.text, fontWeight: FontWeight.w700, fontSize: 13)),
+      const SizedBox(height: 12),
+      child,
+    ]),
+  );
 
-  @override Widget build(BuildContext context) {
-    return Expanded(child: Column(children: [
-      Text(label, style: const TextStyle(color: AppColors.text2, fontSize: 12)),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.text, fontSize: 15)),
-    ]));
+  Widget _legend(Color color, String label) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(children: [
+      Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+      const SizedBox(width: 6),
+      Text(label, style: const TextStyle(color: AppColors.text2, fontSize: 11)),
+    ]),
+  );
+
+  Widget _phaseRow(String name, String range, List<Delivery> dels, int from, int to, int total, Color color) {
+    final d = dels.where((x) => x.overNumber >= from && x.overNumber < to && x.isLegalDelivery).toList();
+    final runs = d.fold(0, (s, x) => s + x.runsTotal);
+    final wkts = d.where((x) => x.isWicket).length;
+    final balls = d.length;
+    final rr = balls > 0 ? ((runs / balls) * 6).toStringAsFixed(1) : '0.0';
+    final pct = total > 0 ? '${((runs / total) * 100).toStringAsFixed(0)}%' : '0%';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      child: Row(children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 13)),
+          Text(range, style: const TextStyle(color: AppColors.text2, fontSize: 11)),
+        ])),
+        Text('$runs/$wkts', style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 18)),
+        const SizedBox(width: 12),
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text('$rr RR', style: const TextStyle(color: AppColors.text2, fontSize: 11)),
+          Text(pct, style: const TextStyle(color: AppColors.text2, fontSize: 11)),
+        ]),
+      ]),
+    );
   }
 }
 
