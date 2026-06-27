@@ -30,6 +30,13 @@ class _ScorecardScreenState extends State<ScorecardScreen>
 
   Future<void> _load() async {
     final m = await MatchApi.get(widget.matchId);
+    // Fetch deliveries for each innings (not included in the match summary response)
+    if (m.innings != null) {
+      await Future.wait(m.innings!.asMap().entries.map((e) async {
+        final full = await MatchApi.getInnings(m.id, e.key + 1);
+        m.innings![e.key] = full;
+      }));
+    }
     if (mounted) setState(() { _match = m; _loading = false; });
   }
 
