@@ -66,6 +66,9 @@ jobs:
           echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
 
       # ── 4. Export options ───────────────────────────────────────
+      # uploadAndDistribute=true makes -exportArchive upload straight to
+      # App Store Connect using the API key (replaces xcrun altool, which
+      # Apple removed in Xcode 16).
       - name: Create ExportOptions.plist
         run: |
           cat > /tmp/ExportOptions.plist << PLIST
@@ -84,22 +87,40 @@ jobs:
               <key>com.bellark.cricscore</key>
               <string>$PROFILE_UUID</string>
             </dict>
-            <key>uploadBitcode</key>
-            <false/>
             <key>uploadSymbols</key>
+            <true/>
+            <key>uploadAndDistribute</key>
             <true/>
           </dict>
           </plist>
           PLIST
 
-      # ── 5. Install FlutterFire CLI ──────────────────────────────
+      # ── 5. App Store Connect API key ────────────────────────────
+      # Written early so -exportArchive can authenticate the upload.
+      - name: Set up App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          KEY_DIR=~/.appstoreconnect/private_keys
+          mkdir -p "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$ASC_KEY_P8" | base64 --decode > "$KEY_PATH"
+          {
+            echo "ASC_KEY_PATH=$KEY_PATH"
+            echo "ASC_KEY_ID=$ASC_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_ISSUER_ID"
+          } >> $GITHUB_ENV
+
+      # ── 6. Install FlutterFire CLI ──────────────────────────────
       - name: Install FlutterFire CLI
         run: |
           dart pub global activate flutterfire_cli
           echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
 
-      # ── 6. Build ────────────────────────────────────────────────
-      - name: Build IPA
+      # ── 7. Build + upload ───────────────────────────────────────
+      - name: Build IPA and upload to TestFlight
         run: |
           BUILD_NUMBER=$((21 + $GITHUB_RUN_NUMBER))
           echo "Building version 1.0.4+$BUILD_NUMBER"
@@ -139,32 +160,16 @@ jobs:
             CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM=N9P5D4TR73
 
-          # Step D: Export signed IPA
+          # Step D: Export signed IPA and upload to App Store Connect in one go.
+          # uploadAndDistribute (ExportOptions.plist) + API key auth below replace
+          # the old `xcrun altool --upload-app` step (altool was removed in Xcode 16).
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
             -exportPath build/ios/ipa \
-            -exportOptionsPlist /tmp/ExportOptions.plist
-
-      # ── 7. Upload ───────────────────────────────────────────────
-      - name: Upload to TestFlight
-        env:
-          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
-          ASC_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
-        run: |
-          KEY_DIR=~/.appstoreconnect/private_keys
-          mkdir -p "$KEY_DIR"
-          echo "$ASC_KEY_P8" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
-
-          IPA=$(ls build/ios/ipa/*.ipa)
-          echo "Uploading: $IPA"
-
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA" \
-            --apiKey  "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID" \
-            --verbose
+            -exportOptionsPlist /tmp/ExportOptions.plist \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       # ── 8. Clean up ─────────────────────────────────────────────
       - name: Clean up secrets
